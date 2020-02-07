@@ -392,8 +392,8 @@ void OpEmitter::genAttrSetters() {
   FmtContext fctx;
   fctx.withBuilder("mlir::Builder(this->getContext())");
   auto emitAttrWithStorageType = [&](StringRef name, Attribute attr) {
-    auto &method = opClass.newMethod("void", (name + "Attr").str(), 
-        (attr.getStorageType() + " attr").str());
+    auto &method = opClass.newMethod("void", (name + "Attr").str(),
+                                     (attr.getStorageType() + " attr").str());
     auto &body = method.body();
     body << "  this->setAttr(\"" << name << "\", attr);";
   };
@@ -401,9 +401,8 @@ void OpEmitter::genAttrSetters() {
   for (auto &namedAttr : op.getAttributes()) {
     const auto &name = namedAttr.name;
     const auto &attr = namedAttr.attr;
-    if (! attr.isDerivedAttr()) {
+    if (!attr.isDerivedAttr())
       emitAttrWithStorageType(name, attr);
-    }
   }
 }
 
