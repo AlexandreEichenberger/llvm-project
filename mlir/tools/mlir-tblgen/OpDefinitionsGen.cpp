@@ -385,12 +385,10 @@ void OpEmitter::genAttrGetters() {
   }
 }
 
-// Generate raw named setter type. This is a wrapper class that allows
-// setting to the attributes via setters instead of having to use
-// the string interface for better compile time verification.
 void OpEmitter::genAttrSetters() {
-  FmtContext fctx;
-  fctx.withBuilder("mlir::Builder(this->getContext())");
+  // Generate raw named setter type. This is a wrapper class that allows setting
+  // to the attributes via setters instead of having to use the string interface
+  // for better compile time verification.
   auto emitAttrWithStorageType = [&](StringRef name, Attribute attr) {
     auto &method = opClass.newMethod("void", (name + "Attr").str(),
                                      (attr.getStorageType() + " attr").str());
