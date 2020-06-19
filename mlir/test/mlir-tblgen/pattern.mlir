@@ -370,4 +370,3 @@ func @redundantTest(%arg0: i32) -> i32 {
   // CHECK: "test.op_m"(%arg0) {optional_attr = 314159265 : i32} : (i32) -> i32
   return %0 : i32
 }
-
