@@ -602,6 +602,20 @@ def OpJ : TEST_Op<"op_j">, Arguments<(ins)>, Results<(outs I32)>;
 def OpK : TEST_Op<"op_k">, Arguments<(ins)>, Results<(outs I32)>;
 def : Pat<(OpJ), (OpK)>;
 
+// Test patterns for redundant computation of operands
+def OpM : TEST_Op<"op_m"> {
+  let arguments = (ins I32, OptionalAttr<I32Attr>:$optional_attr);
+  let results = (outs I32);
+}
+// Pattern add the argument plus a increasing static number hidden in 
+// OpMTest function. That value is set into the optional argument.
+// That way, we will know if operations is called once or twice.
+def OpM_GetNullAttr : NativeCodeCall<"Attribute()">;
+def OpM_AttributeIsNull : Constraint<CPred<"! ($_self)">, "Attribute is null">;
+def OpM_Val : NativeCodeCall<"OpM_Test($_builder, $0)">;
+def : Pat<(OpM $attr, $optAttr), (OpM $attr, (OpM_Val $attr) ), 
+    [(OpM_AttributeIsNull:$optAttr)]>;
+
 // Test `$_` for ignoring op argument match.
 def TestIgnoreArgMatchSrcOp : TEST_Op<"ignore_arg_match_src"> {
   let arguments = (ins

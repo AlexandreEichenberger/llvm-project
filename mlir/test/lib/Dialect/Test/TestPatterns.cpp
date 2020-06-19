@@ -32,6 +32,12 @@ static void handleNoResultOp(PatternRewriter &rewriter,
                                     op.operand());
 }
 
+static int64_t OpM_IncrasingValue = 314159265;
+static Attribute OpM_Test(PatternRewriter &rewriter, Value val){
+  int64_t i = OpM_IncrasingValue++;
+  return rewriter.getIntegerAttr(rewriter.getIntegerType(32), i);
+}
+
 namespace {
 #include "TestPatterns.inc"
 } // end anonymous namespace

@@ -359,3 +359,15 @@ func @generateVariadicOutputOpInNestedPattern() -> (i32) {
   %0 = "test.one_i32_out"() : () -> (i32)
   return %0 : i32
 }
+
+//===----------------------------------------------------------------------===//
+// Test Rewrite rules calling native calls only once
+//===----------------------------------------------------------------------===//
+
+// CHECK-LABEL: redundantTest
+func @redundantTest(%arg0: i32) -> i32 {
+  %0 = "test.op_m"(%arg0) : (i32) -> i32
+  // CHECK: "test.op_m"(%arg0) {optional_attr = 314159265 : i32} : (i32) -> i32
+  return %0 : i32
+}
+
