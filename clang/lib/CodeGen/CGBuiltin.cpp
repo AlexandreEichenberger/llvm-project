@@ -7639,6 +7639,9 @@ llvm::Type *CodeGenFunction::getEltType(SVETypeFlags TypeFlags) {
   case SVETypeFlags::EltTyFloat64:
     return Builder.getDoubleTy();
 
+  case SVETypeFlags::EltTyBFloat16:
+    return Builder.getBFloatTy();
+
   case SVETypeFlags::EltTyBool8:
   case SVETypeFlags::EltTyBool16:
   case SVETypeFlags::EltTyBool32:
@@ -7699,6 +7702,8 @@ CodeGenFunction::getSVEType(const SVETypeFlags &TypeFlags) {
 
   case SVETypeFlags::EltTyFloat16:
     return llvm::ScalableVectorType::get(Builder.getHalfTy(), 8);
+  case SVETypeFlags::EltTyBFloat16:
+    return llvm::ScalableVectorType::get(Builder.getBFloatTy(), 8);
   case SVETypeFlags::EltTyFloat32:
     return llvm::ScalableVectorType::get(Builder.getFloatTy(), 4);
   case SVETypeFlags::EltTyFloat64:
@@ -7897,6 +7902,84 @@ Value *CodeGenFunction::EmitSVEGatherPrefetch(SVETypeFlags TypeFlags,
 
   Function *F = CGM.getIntrinsic(IntID, OverloadedTy);
   return Builder.CreateCall(F, Ops);
+}
+
+Value *CodeGenFunction::EmitSVEStructLoad(SVETypeFlags TypeFlags,
+                                          SmallVectorImpl<Value*> &Ops,
+                                          unsigned IntID) {
+  llvm::ScalableVectorType *VTy = getSVEType(TypeFlags);
+  auto VecPtrTy = llvm::PointerType::getUnqual(VTy);
+  auto EltPtrTy = llvm::PointerType::getUnqual(VTy->getElementType());
+
+  unsigned N;
+  switch (IntID) {
+  case Intrinsic::aarch64_sve_ld2:
+    N = 2;
+    break;
+  case Intrinsic::aarch64_sve_ld3:
+    N = 3;
+    break;
+  case Intrinsic::aarch64_sve_ld4:
+    N = 4;
+    break;
+  default:
+    llvm_unreachable("unknown intrinsic!");
+  }
+  auto RetTy = llvm::VectorType::get(VTy->getElementType(),
+                                     VTy->getElementCount() * N);
+
+	Value *Predicate = EmitSVEPredicateCast(Ops[0], VTy);
+  Value *BasePtr= Builder.CreateBitCast(Ops[1], VecPtrTy);
+  Value *Offset = Ops.size() > 2 ? Ops[2] : Builder.getInt32(0);
+  BasePtr = Builder.CreateGEP(VTy, BasePtr, Offset);
+  BasePtr = Builder.CreateBitCast(BasePtr, EltPtrTy);
+
+  Function *F = CGM.getIntrinsic(IntID, {RetTy, Predicate->getType()});
+  return Builder.CreateCall(F, { Predicate, BasePtr });
+}
+
+Value *CodeGenFunction::EmitSVEStructStore(SVETypeFlags TypeFlags,
+                                           SmallVectorImpl<Value*> &Ops,
+                                           unsigned IntID) {
+  llvm::ScalableVectorType *VTy = getSVEType(TypeFlags);
+  auto VecPtrTy = llvm::PointerType::getUnqual(VTy);
+  auto EltPtrTy = llvm::PointerType::getUnqual(VTy->getElementType());
+
+  unsigned N;
+  switch (IntID) {
+  case Intrinsic::aarch64_sve_st2:
+    N = 2;
+    break;
+  case Intrinsic::aarch64_sve_st3:
+    N = 3;
+    break;
+  case Intrinsic::aarch64_sve_st4:
+    N = 4;
+    break;
+  default:
+    llvm_unreachable("unknown intrinsic!");
+  }
+  auto TupleTy =
+      llvm::VectorType::get(VTy->getElementType(), VTy->getElementCount() * N);
+
+  Value *Predicate = EmitSVEPredicateCast(Ops[0], VTy);
+  Value *BasePtr = Builder.CreateBitCast(Ops[1], VecPtrTy);
+  Value *Offset = Ops.size() > 3 ? Ops[2] : Builder.getInt32(0);
+  Value *Val = Ops.back();
+  BasePtr = Builder.CreateGEP(VTy, BasePtr, Offset);
+  BasePtr = Builder.CreateBitCast(BasePtr, EltPtrTy);
+
+  // The llvm.aarch64.sve.st2/3/4 intrinsics take legal part vectors, so we
+  // need to break up the tuple vector.
+  SmallVector<llvm::Value*, 5> Operands;
+  Function *FExtr =
+      CGM.getIntrinsic(Intrinsic::aarch64_sve_tuple_get, {VTy, TupleTy});
+  for (unsigned I = 0; I < N; ++I)
+    Operands.push_back(Builder.CreateCall(FExtr, {Val, Builder.getInt32(I)}));
+  Operands.append({Predicate, BasePtr});
+
+  Function *F = CGM.getIntrinsic(IntID, { VTy });
+  return Builder.CreateCall(F, Operands);
 }
 
 // SVE2's svpmullb and svpmullt builtins are similar to the svpmullb_pair and
@@ -8109,6 +8192,10 @@ Value *CodeGenFunction::EmitAArch64SVEBuiltinExpr(unsigned BuiltinID,
     return EmitSVEPrefetchLoad(TypeFlags, Ops, Builtin->LLVMIntrinsic);
   else if (TypeFlags.isGatherPrefetch())
     return EmitSVEGatherPrefetch(TypeFlags, Ops, Builtin->LLVMIntrinsic);
+	else if (TypeFlags.isStructLoad())
+		return EmitSVEStructLoad(TypeFlags, Ops, Builtin->LLVMIntrinsic);
+	else if (TypeFlags.isStructStore())
+		return EmitSVEStructStore(TypeFlags, Ops, Builtin->LLVMIntrinsic);
   else if (TypeFlags.isUndef())
     return UndefValue::get(Ty);
   else if (Builtin->LLVMIntrinsic != 0) {

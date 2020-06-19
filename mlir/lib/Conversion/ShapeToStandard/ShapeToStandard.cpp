@@ -38,6 +38,45 @@ public:
   }
 };
 
+class ShapeOfOpConversion : public OpConversionPattern<ShapeOfOp> {
+public:
+  using OpConversionPattern<ShapeOfOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ShapeOfOp op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    ShapeOfOp::Adaptor transformed(operands);
+    auto loc = op.getLoc();
+    auto tensorVal = transformed.arg();
+    auto tensorTy = tensorVal.getType();
+
+    // For unranked tensors `shape_of` lowers to `scf` and the pattern can be
+    // found in the corresponding pass.
+    if (tensorTy.isa<UnrankedTensorType>())
+      return failure();
+
+    // Build values for individual dimensions.
+    SmallVector<Value, 8> dimValues;
+    auto rankedTensorTy = tensorTy.cast<RankedTensorType>();
+    int64_t rank = rankedTensorTy.getRank();
+    for (int64_t i = 0; i < rank; i++) {
+      if (rankedTensorTy.isDynamicDim(i)) {
+        auto dimVal = rewriter.create<DimOp>(loc, tensorVal, i);
+        dimValues.push_back(dimVal);
+      } else {
+        int64_t dim = rankedTensorTy.getDimSize(i);
+        auto dimVal = rewriter.create<ConstantIndexOp>(loc, dim);
+        dimValues.push_back(dimVal);
+      }
+    }
+
+    // Materialize shape as ranked tensor.
+    rewriter.replaceOpWithNewOp<TensorFromElementsOp>(op.getOperation(),
+                                                      dimValues);
+    return success();
+  }
+};
+
 class ConstSizeOpConverter : public OpConversionPattern<ConstSizeOp> {
 public:
   using OpConversionPattern<ConstSizeOp>::OpConversionPattern;
@@ -82,7 +121,8 @@ class ConvertShapeToStandardPass
     target.addLegalDialect<scf::SCFDialect, StandardOpsDialect>();
     target.addLegalOp<ModuleOp, ModuleTerminatorOp, ReturnOp>();
     target.addDynamicallyLegalOp<FuncOp>([&](FuncOp op) {
-      return typeConverter.isSignatureLegal(op.getType());
+      return typeConverter.isSignatureLegal(op.getType()) &&
+             typeConverter.isLegal(&op.getBody());
     });
 
     // Setup conversion patterns.
@@ -92,7 +132,7 @@ class ConvertShapeToStandardPass
 
     // Apply conversion.
     auto module = getOperation();
-    if (failed(applyFullConversion(module, target, patterns, &typeConverter)))
+    if (failed(applyFullConversion(module, target, patterns)))
       signalPassFailure();
   }
 };
@@ -106,7 +146,8 @@ void mlir::populateShapeToStandardConversionPatterns(
   patterns.insert<
       BinaryOpConversion<AddOp, AddIOp>,
       BinaryOpConversion<MulOp, MulIOp>,
-      ConstSizeOpConverter>(ctx);
+      ConstSizeOpConverter,
+      ShapeOfOpConversion>(ctx);
   // clang-format on
 }
 

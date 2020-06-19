@@ -5441,6 +5441,14 @@ static bool isAnyZero(ArrayRef<int> Mask) {
   return llvm::any_of(Mask, [](int M) { return M == SM_SentinelZero; });
 }
 
+/// Return true if the value of any element in Mask is the zero or undef
+/// sentinel values.
+static bool isAnyZeroOrUndef(ArrayRef<int> Mask) {
+  return llvm::any_of(Mask, [](int M) {
+    return M == SM_SentinelZero || M == SM_SentinelUndef;
+  });
+}
+
 /// Return true if Val is undef or if its value falls within the
 /// specified range (L, H].
 static bool isUndefOrInRange(int Val, int Low, int Hi) {
@@ -38496,6 +38504,25 @@ static SDValue combineHorizontalPredicateResult(SDNode *Extract,
       EVT MovmskVT = EVT::getIntegerVT(*DAG.getContext(), NumElts);
       Movmsk = DAG.getBitcast(MovmskVT, Match);
     } else {
+      // For all_of(setcc(vec,0,eq)) - avoid vXi64 comparisons if we don't have
+      // PCMPEQQ (SSE41+), use PCMPEQD instead.
+      if (BinOp == ISD::AND && !Subtarget.hasSSE41() &&
+          Match.getOpcode() == ISD::SETCC &&
+          ISD::isBuildVectorAllZeros(Match.getOperand(1).getNode()) &&
+          cast<CondCodeSDNode>(Match.getOperand(2))->get() ==
+              ISD::CondCode::SETEQ) {
+        SDValue Vec = Match.getOperand(0);
+        if (Vec.getValueType().getScalarType() == MVT::i64 &&
+            (2 * NumElts) <= MaxElts) {
+          NumElts *= 2;
+          EVT CmpVT = EVT::getVectorVT(*DAG.getContext(), MVT::i32, NumElts);
+          MatchVT = EVT::getVectorVT(*DAG.getContext(), MVT::i1, NumElts);
+          Match = DAG.getSetCC(
+              DL, MatchVT, DAG.getBitcast(CmpVT, Match.getOperand(0)),
+              DAG.getBitcast(CmpVT, Match.getOperand(1)), ISD::CondCode::SETEQ);
+        }
+      }
+
       // Use combineBitcastvxi1 to create the MOVMSK.
       while (NumElts > MaxElts) {
         SDValue Lo, Hi;
@@ -40587,6 +40614,31 @@ static SDValue combineSetCCMOVMSK(SDValue EFLAGS, X86::CondCode &CC,
       }
       return DAG.getNode(X86ISD::CMP, DL, MVT::i32, Result,
                          DAG.getConstant(CmpMask, DL, MVT::i32));
+    }
+  }
+
+  // MOVMSK(SHUFFLE(X,u)) -> MOVMSK(X) iff every element is referenced.
+  SmallVector<int, 32> ShuffleMask;
+  SmallVector<SDValue, 2> ShuffleInputs;
+  if (NumElts == CmpBits &&
+      getTargetShuffleInputs(peekThroughBitcasts(Vec), ShuffleInputs,
+                             ShuffleMask, DAG) &&
+      ShuffleInputs.size() == 1 && !isAnyZeroOrUndef(ShuffleMask) &&
+      ShuffleInputs[0].getValueSizeInBits() == VecVT.getSizeInBits()) {
+    unsigned NumShuffleElts = ShuffleMask.size();
+    APInt DemandedElts = APInt::getNullValue(NumShuffleElts);
+    for (int M : ShuffleMask) {
+      assert(0 <= M && M < (int)NumShuffleElts && "Bad unary shuffle index");
+      DemandedElts.setBit(M);
+    }
+    if (DemandedElts.isAllOnesValue()) {
+      SDLoc DL(EFLAGS);
+      SDValue Result = DAG.getBitcast(VecVT, ShuffleInputs[0]);
+      Result = DAG.getNode(X86ISD::MOVMSK, DL, MVT::i32, Result);
+      Result =
+          DAG.getZExtOrTrunc(Result, DL, EFLAGS.getOperand(0).getValueType());
+      return DAG.getNode(X86ISD::CMP, DL, MVT::i32, Result,
+                         EFLAGS.getOperand(1));
     }
   }
 
