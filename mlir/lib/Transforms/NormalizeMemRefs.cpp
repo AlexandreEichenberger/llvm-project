@@ -122,10 +122,8 @@ static bool isMemRefNormalizable(Value::user_range opUsers) {
   if (llvm::any_of(opUsers, [](Operation *op) {
         if (op->hasTrait<OpTrait::MemRefsNormalizable>()) 
           return false;
-
         if (isMemRefDereferencingOp(*op)) 
           return false;
-
         return true;
       }))
     return false;
@@ -175,7 +173,7 @@ void NormalizeMemRefs::setCalleesAndCallersNonNormalizable(
 /// become a candidate for normalization. We follow a conservative approach here
 /// wherein even if the non-normalizable memref is not a part of the function's
 /// argument or return type, we still label the entire function as
-/// non-normalizable. We assume  functions to be normalizable.
+/// non-normalizable. We assume external functions to be normalizable.
 bool NormalizeMemRefs::areMemRefsNormalizable(FuncOp funcOp) {
   // We assume external functions to be normalizable.
   if (funcOp.isExternal())
