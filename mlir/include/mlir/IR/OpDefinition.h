@@ -1214,7 +1214,8 @@ struct NoRegionArguments : public TraitBase<ConcrentType, NoRegionArguments> {
 
 /// This trait provides a the definition for MemRefsNormalizable
 template <typename ConcrentType>
-struct MemRefsNormalizable : public TraitBase<ConcrentType, MemRefsNormalizable> {
+struct MemRefsNormalizable
+    : public TraitBase<ConcrentType, MemRefsNormalizable> {
   //static LogicalResult verifyTrait(Operation *op) {
   //  return true;
   //}

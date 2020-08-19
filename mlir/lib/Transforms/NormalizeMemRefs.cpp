@@ -120,9 +120,9 @@ static bool isMemRefDereferencingOp(Operation &op) {
 /// TODO: Extend this for DimOps.
 static bool isMemRefNormalizable(Value::user_range opUsers) {
   if (llvm::any_of(opUsers, [](Operation *op) {
-        if (op->hasTrait<OpTrait::MemRefsNormalizable>()) 
+        if (op->hasTrait<OpTrait::MemRefsNormalizable>())
           return false;
-        if (isMemRefDereferencingOp(*op)) 
+        if (isMemRefDereferencingOp(*op))
           return false;
         return true;
       }))
@@ -350,7 +350,7 @@ void NormalizeMemRefs::normalizeFuncOpMemRefs(FuncOp funcOp,
   // during memref rewriting.
   SmallVector<AllocOp, 4> allocOps;
   funcOp.walk([&](AllocOp op) { allocOps.push_back(op); });
-  for (AllocOp allocOp : allocOps) 
+  for (AllocOp allocOp : allocOps)
     normalizeMemRef(allocOp);
 
   // We use this OpBuilder to create new memref layout later.

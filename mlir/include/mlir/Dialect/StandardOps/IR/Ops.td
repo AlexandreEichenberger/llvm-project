@@ -1388,7 +1388,7 @@ def SinOp : FloatUnaryOp<"sin"> {
 // DeallocOp
 //===----------------------------------------------------------------------===//
 
-def DeallocOp : Std_Op<"dealloc", 
+def DeallocOp : Std_Op<"dealloc",
     [MemRefsNormalizable, MemoryEffects<[MemFree]>]> {
   let summary = "memory deallocation operation";
   let description = [{
@@ -2126,7 +2126,7 @@ def RemFOp : FloatArithmeticOp<"remf"> {
 //===----------------------------------------------------------------------===//
 
 def ReturnOp : Std_Op<"return", [NoSideEffect, HasParent<"FuncOp">, ReturnLike,
-                                 Terminator, MemRefsNormalizable]> {
+    Terminator, MemRefsNormalizable]> {
   let summary = "return operation";
   let description = [{
     The `return` operation represents a return operation within a function.
