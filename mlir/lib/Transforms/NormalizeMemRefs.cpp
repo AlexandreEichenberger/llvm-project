@@ -106,14 +106,6 @@ void NormalizeMemRefs::runOnOperation() {
     normalizeFuncOpMemRefs(funcOp, moduleOp);
 }
 
-/// Return true if this operation dereferences one or more memref's.
-/// TODO: Temporary utility, will be replaced when this is modeled through
-/// side-effects/op traits.
-static bool isMemRefDereferencingOp(Operation &op) {
-  return isa<AffineReadOpInterface, AffineWriteOpInterface, AffineDmaStartOp,
-             AffineDmaWaitOp>(op);
-}
-
 /// Check whether all the uses of oldMemRef are either dereferencing uses or the
 /// op is of type : DeallocOp, CallOp or ReturnOp. Only if these constraints
 /// are satisfied will the value become a candidate for replacement.
@@ -121,8 +113,6 @@ static bool isMemRefDereferencingOp(Operation &op) {
 static bool isMemRefNormalizable(Value::user_range opUsers) {
   if (llvm::any_of(opUsers, [](Operation *op) {
         if (op->hasTrait<OpTrait::MemRefsNormalizable>())
-          return false;
-        if (isMemRefDereferencingOp(*op))
           return false;
         return true;
       }))

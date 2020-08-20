@@ -280,12 +280,10 @@ to be [terminators](LangRef.md#terminator-operations).
 
 * `OpTrait::MemRefsNormalizable` -- `MemRefsNormalizable`
 
-This trait is used to flag operations that can accomodate `MemRefs` with 
-nontrivial memory-layout specifications. This trait indicates that the 
-normalization of memory layout can proceed for such operations. 
-`MemRefs` normalization consists of replacing the original `MemRefs` 
-with layout specifications to an equivalent `MemRefs` where the specified 
-memory layout is applied to the access pattern and the type associated with 
-this memory references. 
-
-
+This trait is used to flag operations that can accomodate `MemRefs` with
+nontrivial memory-layout specifications. This trait indicates that the
+normalization of memory layout can proceed for such operations.
+`MemRefs` normalization consists of replacing the original `MemRefs`
+with layout specifications to an equivalent `MemRefs` where the specified
+memory layout is applied to the access pattern and the type associated with
+this memory references.

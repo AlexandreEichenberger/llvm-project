@@ -404,8 +404,8 @@ def AffineIfOp : Affine_Op<"if",
 }
 
 class AffineLoadOpBase<string mnemonic, list<OpTrait> traits = []> :
-    Affine_Op<mnemonic, !listconcat(traits,
-        [DeclareOpInterfaceMethods<AffineReadOpInterface>])> {
+    Affine_Op<mnemonic, !listconcat(traits, [MemRefsNormalizable,
+        DeclareOpInterfaceMethods<AffineReadOpInterface>])> {
   let arguments = (ins Arg<AnyMemRef, "the reference to load from",
       [MemRead]>:$memref,
       Variadic<Index>:$indices);
@@ -722,8 +722,8 @@ def AffinePrefetchOp : Affine_Op<"prefetch"> {
 }
 
 class AffineStoreOpBase<string mnemonic, list<OpTrait> traits = []> :
-    Affine_Op<mnemonic, !listconcat(traits,
-        [DeclareOpInterfaceMethods<AffineWriteOpInterface>])> {
+    Affine_Op<mnemonic, !listconcat(traits, [MemRefsNormalizable,
+        DeclareOpInterfaceMethods<AffineWriteOpInterface>])> {
   code extraClassDeclarationBase = [{
     /// Returns the operand index of the value to be stored.
     unsigned getStoredValOperandIndex() { return 0; }
