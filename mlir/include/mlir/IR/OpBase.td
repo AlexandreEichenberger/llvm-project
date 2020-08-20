@@ -1698,7 +1698,7 @@ def SameOperandsAndResultElementType :
   NativeOpTrait<"SameOperandsAndResultElementType">;
 // Op is a terminator.
 def Terminator : NativeOpTrait<"IsTerminator">;
-// Op can be safely normalized in presence of MemRefs with maps
+// Op can be safely normalized in presence of MemRefs with maps.
 def MemRefsNormalizable : NativeOpTrait<"MemRefsNormalizable">;
 
 // Op's regions have a single block with the specified terminator.

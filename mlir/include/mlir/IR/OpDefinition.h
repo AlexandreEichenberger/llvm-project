@@ -1212,7 +1212,8 @@ struct NoRegionArguments : public TraitBase<ConcrentType, NoRegionArguments> {
   }
 };
 
-/// This trait provides a the definition for MemRefsNormalizable
+/// This trait indicates that memref normalization pass can normalize nontrivial
+/// memory layout specification for operations of this type.
 template <typename ConcrentType>
 struct MemRefsNormalizable
     : public TraitBase<ConcrentType, MemRefsNormalizable> {
