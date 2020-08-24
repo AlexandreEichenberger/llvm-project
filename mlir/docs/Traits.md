@@ -276,13 +276,13 @@ This trait is used for operations that define a
 This trait provides verification and functionality for operations that are known
 to be [terminators](LangRef.md#terminator-operations).
 
-### MemRefsNaturalizable
+### MemRefsNormalizable
 
 * `OpTrait::MemRefsNormalizable` -- `MemRefsNormalizable`
 
-This trait is used to flag operations that can accomodate `MemRefs` with
-nontrivial memory-layout specifications. This trait indicates that the
-normalization of memory layout can proceed for such operations.
+This trait is used to flag operations that can accommodate `MemRefs` with
+non-identity memory-layout specifications. This trait indicates that the
+normalization of memory layout can be performed for such operations.
 `MemRefs` normalization consists of replacing the original `MemRefs`
 with layout specifications to an equivalent `MemRefs` where the specified
 memory layout is applied to the access pattern and the type associated with
