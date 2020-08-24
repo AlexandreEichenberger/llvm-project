@@ -33,6 +33,7 @@ class GISelKnownBits;
 class MachineDominatorTree;
 class LegalizerInfo;
 struct LegalityQuery;
+class TargetLowering;
 
 struct PreferredTuple {
   LLT Ty;                // The result type of the extend.
@@ -50,6 +51,11 @@ struct IndexedLoadStoreMatchInfo {
 struct PtrAddChain {
   int64_t Imm;
   Register Base;
+};
+
+struct RegisterImmPair {
+  Register Reg;
+  int64_t Imm;
 };
 
 using OperandBuildSteps =
@@ -89,6 +95,8 @@ public:
   GISelKnownBits *getKnownBits() const {
     return KB;
   }
+
+  const TargetLowering &getTargetLowering() const;
 
   /// \return true if the combine is running prior to legalization, or if \p
   /// Query is legal on the target.
@@ -222,6 +230,12 @@ public:
   bool matchCombineMulToShl(MachineInstr &MI, unsigned &ShiftVal);
   bool applyCombineMulToShl(MachineInstr &MI, unsigned &ShiftVal);
 
+  // Transform a G_SHL with an extended source into a narrower shift if
+  // possible.
+  bool matchCombineShlOfExtend(MachineInstr &MI, RegisterImmPair &MatchData);
+  bool applyCombineShlOfExtend(MachineInstr &MI,
+                               const RegisterImmPair &MatchData);
+
   /// Reduce a shift by a constant to an unmerge and a shift on a half sized
   /// type. This will not produce a shift smaller than \p TargetShiftSize.
   bool matchCombineShiftToUnmerge(MachineInstr &MI, unsigned TargetShiftSize,
@@ -310,7 +324,7 @@ public:
   /// LHS & mask == LHS. (E.g., an all-ones value.)
   ///
   /// \param [in] MI - The G_AND instruction.
-  /// \param [out] Reg - A register the G_AND should be replaced with on
+  /// \param [out] Replacement - A register the G_AND should be replaced with on
   /// success.
   bool matchAndWithTrivialMask(MachineInstr &MI, Register &Replacement);
 

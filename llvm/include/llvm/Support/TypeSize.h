@@ -35,13 +35,11 @@ private:
   ElementCount(unsigned Min, bool Scalable) : Min(Min), Scalable(Scalable) {}
 
 public:
-  /// No default constructor. Users should use one of the `get*`
-  /// static methods below, as they should always make a conscious
-  /// choice on the type of `ElementCount` they are requesting.
-  ElementCount() = delete;
   unsigned Min;  // Minimum number of vector elements.
   bool Scalable; // If true, NumElements is a multiple of 'Min' determined
                  // at runtime rather than compile time.
+
+  ElementCount() = default;
 
   ElementCount operator*(unsigned RHS) {
     return { Min * RHS, Scalable };
@@ -69,7 +67,32 @@ public:
   static ElementCount get(unsigned Min, bool Scalable) {
     return {Min, Scalable};
   }
+
+  /// Printing function.
+  void print(raw_ostream &OS) const {
+    if (Scalable)
+      OS << "vscale x ";
+    OS << Min;
+  }
+  /// Counting predicates.
+  ///
+  /// Notice that Min = 1 and Scalable = true is considered more than
+  /// one element.
+  ///
+  ///@{ No elements..
+  bool isZero() const { return Min == 0; }
+  /// Exactly one element.
+  bool isScalar() const { return !Scalable && Min == 1; }
+  /// One or more elements.
+  bool isVector() const { return (Scalable && Min != 0) || Min > 1; }
+  ///@}
 };
+
+/// Stream operator function for `ElementCount`.
+inline raw_ostream &operator<<(raw_ostream &OS, const ElementCount &EC) {
+  EC.print(OS);
+  return OS;
+}
 
 // This class is used to represent the size of types. If the type is of fixed
 // size, it will represent the exact size. If the type is a scalable vector,

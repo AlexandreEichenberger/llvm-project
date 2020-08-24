@@ -2506,6 +2506,8 @@ def mlongcall: Flag<["-"], "mlongcall">,
     Group<m_ppc_Features_Group>;
 def mno_longcall : Flag<["-"], "mno-longcall">,
     Group<m_ppc_Features_Group>;
+def mmma: Flag<["-"], "mmma">, Group<m_ppc_Features_Group>;
+def mno_mma: Flag<["-"], "mno-mma">, Group<m_ppc_Features_Group>;
 def maix_struct_return : Flag<["-"], "maix-struct-return">,
   Group<m_Group>, Flags<[CC1Option]>,
   HelpText<"Return all structs in memory (PPC32 only)">;
@@ -4043,8 +4045,7 @@ def frecovery_ast : Flag<["-"], "frecovery-ast">,
            "encountering semantic errors">;
 def fno_recovery_ast : Flag<["-"], "fno-recovery-ast">;
 def frecovery_ast_type : Flag<["-"], "frecovery-ast-type">,
-  HelpText<"Preserve the type for recovery expressions when possible "
-          "(experimental)">;
+  HelpText<"Preserve the type for recovery expressions when possible">;
 def fno_recovery_ast_type : Flag<["-"], "fno-recovery-ast-type">;
 
 let Group = Action_Group in {
