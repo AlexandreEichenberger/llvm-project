@@ -1219,6 +1219,9 @@ struct NoRegionArguments : public TraitBase<ConcrentType, NoRegionArguments> {
 /// with layout specifications to an equivalent MemRefs where the specified
 /// memory layout is applied to the access pattern and the type associated with
 /// this memory references.
+// TODO: Right now, the operands of an operation are either all normalizable, 
+// or not. In the future, we may want to allow some of the operands to be 
+// normalizable.
 template <typename ConcrentType>
 struct MemRefsNormalizable
     : public TraitBase<ConcrentType, MemRefsNormalizable> {
