@@ -2374,6 +2374,113 @@ OpFoldResult SignedDivIOp::fold(ArrayRef<Attribute> operands) {
 }
 
 //===----------------------------------------------------------------------===//
+// SignedFloorDivIOp
+//===----------------------------------------------------------------------===//
+
+static APInt SignedCeilNonnegInputs(APInt a, APInt b, bool &overflow) {
+  // Returns (a-1)/b + 1
+  APInt one(a.getBitWidth(), 1, true); // Signed value 1.
+  APInt val = a.ssub_ov(one, overflow).sdiv_ov(b, overflow);
+  return val.sadd_ov(one, overflow);
+}
+
+OpFoldResult SignedFloorDivIOp::fold(ArrayRef<Attribute> operands) {
+  assert(operands.size() == 2 && "binary operation takes two operands");
+
+  // Don't fold if it would overflow or if it requires a division by zero.
+  bool overflowOrDiv0 = false;
+  auto result = constFoldBinaryOp<IntegerAttr>(operands, [&](APInt a, APInt b) {
+    if (overflowOrDiv0 || !b) {
+      overflowOrDiv0 = true;
+      return a;
+    }
+    unsigned bits = a.getBitWidth();
+    APInt zero = APInt::getNullValue(bits);
+    if (a.sge(zero) && b.sgt(zero)) {
+      // Both positive (or a is zero), return a / b.
+      return a.sdiv_ov(b, overflowOrDiv0);
+    } else if (a.sle(zero) && b.slt(zero)) {
+      // Both negative (or a is zero), return -a / -b.
+      APInt posA = zero.ssub_ov(a, overflowOrDiv0);
+      APInt posB = zero.ssub_ov(b, overflowOrDiv0);
+      return posA.sdiv_ov(posB, overflowOrDiv0);
+    } else if (a.slt(zero) && b.sgt(zero)) {
+      // A is negative, b is positive, return - ceil(-a, b).
+      APInt posA = zero.ssub_ov(a, overflowOrDiv0);
+      APInt ceil = SignedCeilNonnegInputs(posA, b, overflowOrDiv0);
+      return zero.ssub_ov(ceil, overflowOrDiv0);
+    } else {
+      // A is positive, b is negative, return - ceil(a, -b).
+      APInt posB = zero.ssub_ov(b, overflowOrDiv0);
+      APInt ceil = SignedCeilNonnegInputs(a, posB, overflowOrDiv0);
+      return zero.ssub_ov(ceil, overflowOrDiv0);
+    }
+  });
+
+  // Fold out floor division by one. Assumes all tensors of all ones are
+  // splats.
+  if (auto rhs = operands[1].dyn_cast_or_null<IntegerAttr>()) {
+    if (rhs.getValue() == 1)
+      return lhs();
+  } else if (auto rhs = operands[1].dyn_cast_or_null<SplatElementsAttr>()) {
+    if (rhs.getSplatValue<IntegerAttr>().getValue() == 1)
+      return lhs();
+  }
+
+  return overflowOrDiv0 ? Attribute() : result;
+}
+
+//===----------------------------------------------------------------------===//
+// SignedCeilDivIOp
+//===----------------------------------------------------------------------===//
+
+OpFoldResult SignedCeilDivIOp::fold(ArrayRef<Attribute> operands) {
+  assert(operands.size() == 2 && "binary operation takes two operands");
+
+  // Don't fold if it would overflow or if it requires a division by zero.
+  bool overflowOrDiv0 = false;
+  auto result = constFoldBinaryOp<IntegerAttr>(operands, [&](APInt a, APInt b) {
+    if (overflowOrDiv0 || !b) {
+      overflowOrDiv0 = true;
+      return a;
+    }
+    unsigned bits = a.getBitWidth();
+    APInt zero = APInt::getNullValue(bits);
+    if (a.sgt(zero) && b.sgt(zero)) {
+      // Both positive, return ceil(a, b).
+      return SignedCeilNonnegInputs(a, b, overflowOrDiv0);
+    } else if (a.slt(zero) && b.slt(zero)) {
+      // Both negative, return ceil(-a, -b).
+      APInt posA = zero.ssub_ov(a, overflowOrDiv0);
+      APInt posB = zero.ssub_ov(b, overflowOrDiv0);
+      return SignedCeilNonnegInputs(posA, posB, overflowOrDiv0);
+    } else if (a.slt(zero) && b.sgt(zero)) {
+      // A is negative, b is positive, return - ( -a / b).
+      APInt posA = zero.ssub_ov(a, overflowOrDiv0);
+      APInt div = posA.sdiv_ov(b, overflowOrDiv0);
+      return zero.ssub_ov(div, overflowOrDiv0);
+    } else {
+      // A is positive (or zero), b is negative, return - (a / -b).
+      APInt posB = zero.ssub_ov(b, overflowOrDiv0);
+      APInt div = a.sdiv_ov(posB, overflowOrDiv0);
+      return zero.ssub_ov(div, overflowOrDiv0);
+    }
+  });
+
+  // Fold out floor division by one. Assumes all tensors of all ones are
+  // splats.
+  if (auto rhs = operands[1].dyn_cast_or_null<IntegerAttr>()) {
+    if (rhs.getValue() == 1)
+      return lhs();
+  } else if (auto rhs = operands[1].dyn_cast_or_null<SplatElementsAttr>()) {
+    if (rhs.getSplatValue<IntegerAttr>().getValue() == 1)
+      return lhs();
+  }
+
+  return overflowOrDiv0 ? Attribute() : result;
+}
+
+//===----------------------------------------------------------------------===//
 // SignedRemIOp
 //===----------------------------------------------------------------------===//
 
@@ -2435,7 +2542,8 @@ OpFoldResult SplatOp::fold(ArrayRef<Attribute> operands) {
   assert(shapedType.getElementType() == constOperand.getType() &&
          "incorrect input attribute type for folding");
 
-  // SplatElementsAttr::get treats single value for second arg as being a splat.
+  // SplatElementsAttr::get treats single value for second arg as being a
+  // splat.
   return SplatElementsAttr::get(shapedType, {constOperand});
 }
 
@@ -3042,12 +3150,11 @@ SmallVector<Range, 8> SubViewOp::getOrCreateRanges(OpBuilder &b, Location loc) {
 }
 
 namespace {
-
-/// Take a list of `values` with potential new constant to extract and a list
-/// of `constantValues` with`values.size()` sentinel that evaluate to true by
-/// applying `isDynamic`.
-/// Detects the `values` produced by a ConstantIndexOp and places the new
-/// constant in place of the corresponding sentinel value.
+/// Take a list of `values` with potential new constant to extract and a
+/// list of `constantValues` with`values.size()` sentinel that evaluate to
+/// true by applying `isDynamic`. Detects the `values` produced by a
+/// ConstantIndexOp and places the new constant in place of the
+/// corresponding sentinel value.
 void canonicalizeSubViewPart(SmallVectorImpl<Value> &values,
                              SmallVectorImpl<int64_t> &constantValues,
                              llvm::function_ref<bool(int64_t)> isDynamic) {
@@ -3099,7 +3206,8 @@ public:
       return failure();
 
     // At least one of offsets/sizes/strides is a new constant.
-    // Form the new list of operands and constant attributes from the existing.
+    // Form the new list of operands and constant attributes from the
+    // existing.
     SmallVector<Value, 8> newOffsets(op.offsets());
     SmallVector<int64_t, 8> newStaticOffsets =
         extractFromI64ArrayAttr(op.static_offsets());
@@ -3296,7 +3404,8 @@ public:
 
   LogicalResult matchAndRewrite(SubViewOp subViewOp,
                                 PatternRewriter &rewriter) const override {
-    // Any constant operand, just return to let SubViewOpConstantFolder kick in.
+    // Any constant operand, just return to let SubViewOpConstantFolder
+    // kick in.
     if (llvm::any_of(subViewOp.getOperands(), [](Value operand) {
           return matchPattern(operand, m_ConstantIndex());
         }))
@@ -3309,9 +3418,10 @@ public:
     if (!canFoldIntoConsumerOp(castOp))
       return failure();
 
-    /// Deduce the resultType of the SubViewOp using `inferSubViewResultType` on
-    /// the cast source operand type and the SubViewOp static information. This
-    /// is the resulting type if the MemRefCastOp were folded.
+    /// Deduce the resultType of the SubViewOp using
+    /// `inferSubViewResultType` on the cast source operand type and the
+    /// SubViewOp static information. This is the resulting type if the
+    /// MemRefCastOp were folded.
     Type resultType = SubViewOp::inferResultType(
         castOp.source().getType().cast<MemRefType>(),
         extractFromI64ArrayAttr(subViewOp.static_offsets()),
@@ -3551,7 +3661,6 @@ static TensorType joinShapes(TensorType one, TensorType two) {
 }
 
 namespace {
-
 /// Replaces chains of two tensor_cast operations by a single tensor_cast
 /// operation if doing so does not remove runtime constraints.
 struct ChainedTensorCast : public OpRewritePattern<TensorCastOp> {
@@ -3570,18 +3679,19 @@ struct ChainedTensorCast : public OpRewritePattern<TensorCastOp> {
     auto intermediateType = tensorCastOperand.getType().cast<TensorType>();
     auto resultType = tensorCast.getType().cast<TensorType>();
 
-    // We can remove the intermediate cast if joining all three produces the
-    // same result as just joining the source and result shapes.
+    // We can remove the intermediate cast if joining all three produces
+    // the same result as just joining the source and result shapes.
     auto firstJoin =
         joinShapes(joinShapes(sourceType, intermediateType), resultType);
 
-    // The join might not exist if the cast sequence would fail at runtime.
+    // The join might not exist if the cast sequence would fail at
+    // runtime.
     if (!firstJoin)
       return failure();
 
-    // The newJoin always exists if the above join exists, it might just contain
-    // less information. If so, we cannot drop the intermediate cast, as doing
-    // so would remove runtime checks.
+    // The newJoin always exists if the above join exists, it might just
+    // contain less information. If so, we cannot drop the intermediate
+    // cast, as doing so would remove runtime checks.
     auto newJoin = joinShapes(sourceType, resultType);
     if (firstJoin != newJoin)
       return failure();
@@ -3869,7 +3979,6 @@ static LogicalResult verify(ViewOp op) {
 Value ViewOp::getViewSource() { return source(); }
 
 namespace {
-
 struct ViewOpShapeFolder : public OpRewritePattern<ViewOp> {
   using OpRewritePattern<ViewOp>::OpRewritePattern;
 
@@ -3913,7 +4022,8 @@ struct ViewOpShapeFolder : public OpRewritePattern<ViewOp> {
         // Dynamic shape dimension will be folded.
         newShapeConstants.push_back(constantIndexOp.getValue());
       } else {
-        // Dynamic shape dimension not folded; copy operand from old memref.
+        // Dynamic shape dimension not folded; copy operand from old
+        // memref.
         newShapeConstants.push_back(dimSize);
         newOperands.push_back(viewOp.sizes()[dynamicDimPos]);
       }

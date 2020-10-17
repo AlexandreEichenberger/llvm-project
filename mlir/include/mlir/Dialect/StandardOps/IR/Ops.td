@@ -2403,6 +2403,76 @@ def SignedDivIOp : IntArithmeticOp<"divi_signed"> {
 }
 
 //===----------------------------------------------------------------------===//
+// SignedFloorDivIOp
+//===----------------------------------------------------------------------===//
+
+def SignedFloorDivIOp : IntArithmeticOp<"floordivi_signed"> {
+  let summary = "signed floor integer division operation";
+  let description = [{
+    Syntax:
+
+    ```
+    operation ::= ssa-id `=` `floordivi_signed` ssa-use `,` ssa-use `:` type
+    ```
+
+    Signed integer division. Rounds towards negative infinity. Treats the leading bit as
+    sign, i.e. `6 / -2 = -3`.
+
+    Note: the semantics of division by zero or signed division overflow (minimum
+    value divided by -1) is TBD; do NOT assume any specific behavior.
+
+    Example:
+
+    ```mlir
+    // Scalar signed integer division.
+    %a = floordivis %b, %c : i64
+
+    // SIMD vector element-wise division.
+    %f = floordivis %g, %h : vector<4xi32>
+
+    // Tensor element-wise integer division.
+    %x = floordivis %y, %z : tensor<4x?xi8>
+    ```
+  }];
+  let hasFolder = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// SignedCeilDivIOp
+//===----------------------------------------------------------------------===//
+
+def SignedCeilDivIOp : IntArithmeticOp<"ceildivi_signed"> {
+  let summary = "signed ceil integer division operation";
+  let description = [{
+    Syntax:
+
+    ```
+    operation ::= ssa-id `=` `ceildivi_signed` ssa-use `,` ssa-use `:` type
+    ```
+
+    Signed integer division. Rounds towards positive infinity. Treats the leading bit as
+    sign, i.e. `6 / -2 = -3`.
+
+    Note: the semantics of division by zero or signed division overflow (minimum
+    value divided by -1) is TBD; do NOT assume any specific behavior.
+
+    Example:
+
+    ```mlir
+    // Scalar signed integer division.
+    %a = ceildivis %b, %c : i64
+
+    // SIMD vector element-wise division.
+    %f = ceildivis %g, %h : vector<4xi32>
+
+    // Tensor element-wise integer division.
+    %x = ceildivis %y, %z : tensor<4x?xi8>
+    ```
+  }];
+  let hasFolder = 1;
+}
+
+//===----------------------------------------------------------------------===//
 // SignedRemIOp
 //===----------------------------------------------------------------------===//
 
