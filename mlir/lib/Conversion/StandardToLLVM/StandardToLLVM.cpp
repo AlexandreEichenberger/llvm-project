@@ -3276,6 +3276,87 @@ struct AssumeAlignmentOpLowering
   }
 };
 
+
+class SignedFloorDivIOpLowering
+    : public ConvertOpToLLVMPattern<SignedFloorDivIOp> {
+public:
+  using ConvertOpToLLVMPattern<SignedFloorDivIOp>::ConvertOpToLLVMPattern;
+
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = op->getLoc();
+    SignedFloorDivIOpAdaptor adaptor(operands);
+    auto signedFloorDivIOp = cast<SignedFloorDivIOp>(op);
+    auto type = signedFloorDivIOp.getType();
+    auto a = signedFloorDivIOp.lhs();
+    auto b = signedFloorDivIOp.rhs();
+    auto plusOne =
+        rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, 1));
+    auto zero =
+        rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, 0));
+    auto minusOne =
+        rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, -1));
+    // Compute x = (b<0) ? 1 : -1.
+    auto compare = rewriter.create<CmpIOp>(loc, CmpIPredicate::slt, b, zero);
+    auto x = rewriter.create<SelectOp>(loc, compare, plusOne, minusOne);
+    // Compute negative res: -1 - ((x-a)/b).
+    auto xMinusA = rewriter.create<SubIOp>(loc, x, a);
+    auto xMinusADivB = rewriter.create<SignedDivIOp>(loc, xMinusA, b);
+    auto negRes = rewriter.create<SubIOp>(loc, minusOne, xMinusADivB);
+    // Compute positive res: a/b.
+    auto posRes = rewriter.create<SignedDivIOp>(loc, a, b);
+    // Result is (a*b<0) ? negative result : positive result.
+    auto aTimesB = rewriter.create<MulIOp>(loc, a, b);
+    auto compareRes = rewriter.create<CmpIOp>(loc, CmpIPredicate::slt, aTimesB, zero);
+    auto res = rewriter.create<SelectOp>(loc, compareRes, negRes, posRes);
+    // Perform substitution and return success.
+    rewriter.replaceOp(op, {res});
+    return success();
+  }
+};
+
+class SignedCeilDivIOpLowering
+    : public ConvertOpToLLVMPattern<SignedCeilDivIOp> {
+public:
+  using ConvertOpToLLVMPattern<SignedCeilDivIOp>::ConvertOpToLLVMPattern;
+
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = op->getLoc();
+    SignedCeilDivIOpAdaptor adaptor(operands);
+    auto signedCeilDivIOp = cast<SignedCeilDivIOp>(op);
+    auto type = signedCeilDivIOp.getType();
+    auto a = signedCeilDivIOp.lhs();
+    auto b = signedCeilDivIOp.rhs();
+    auto plusOne =
+        rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, 1));
+    auto zero =
+        rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, 0));
+    auto minusOne =
+        rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, -1));
+    // Compute x = (b>0) ? -1 : 1.
+    auto compare = rewriter.create<CmpIOp>(loc, CmpIPredicate::sgt, b, zero);
+    auto x = rewriter.create<SelectOp>(loc, compare, minusOne, plusOne);
+    // Compute positive res: 1 + ((x+a)/b).
+    auto xPlusA = rewriter.create<AddIOp>(loc, x, a);
+    auto xPlusADivB = rewriter.create<SignedDivIOp>(loc, xPlusA, b);
+    auto posRes = rewriter.create<AddIOp>(loc, plusOne, xPlusADivB);
+    // Compute negative res: - ((-a)/b).
+    auto minusA = rewriter.create<SubIOp>(loc, zero, a);
+    auto minusADivB = rewriter.create<SignedDivIOp>(loc, minusA, b);
+    auto negRes = rewriter.create<SubIOp>(loc, zero, minusADivB);
+    // Result is (a*b>0) ? pos result : neg result.
+    auto aTimesB = rewriter.create<MulIOp>(loc, a, b);
+    auto compareRes = rewriter.create<CmpIOp>(loc, CmpIPredicate::sgt, aTimesB, zero);
+    auto res = rewriter.create<SelectOp>(loc, compareRes, posRes, negRes);
+    // Perform substitution and return success.
+    rewriter.replaceOp(op, {res});
+    return success();
+  }
+};
+
 } // namespace
 
 /// Try to match the kind of a std.atomic_rmw to determine whether to use a
@@ -3503,7 +3584,9 @@ void mlir::populateStdToLLVMNonMemoryConversionPatterns(
       SelectOpLowering,
       ShiftLeftOpLowering,
       SignExtendIOpLowering,
+      SignedCeilDivIOpLowering,
       SignedDivIOpLowering,
+      SignedFloorDivIOpLowering,
       SignedRemIOpLowering,
       SignedShiftRightOpLowering,
       SinOpLowering,
