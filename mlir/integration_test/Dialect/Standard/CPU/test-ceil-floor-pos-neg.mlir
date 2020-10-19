@@ -63,7 +63,7 @@ func @entry() {
     store %val, %A[%i] : memref<40xi32>
   }
   call @transfer_read_2d(%A, %c0) : (memref<40xi32>, index) -> ()
-  
+
   return
 }
 

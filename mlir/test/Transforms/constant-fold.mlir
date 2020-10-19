@@ -421,11 +421,11 @@ func @simple_floordivi_signed() -> (i32, i32, i32, i32, i32) {
   %4 = floordivi_signed %0, %3 : i32
 
   %5 = constant -9 : i32
- 
+
   // floor(-9, 2) = -5
   // CHECK-NEXT: [[CM4:%.+]] = constant -5 : i32
   %6 = floordivi_signed %5, %1 : i32
- 
+
   %7 = constant -13 : i32
 
   // floor(-13, -2) = 6
@@ -460,11 +460,11 @@ func @simple_ceildivi_signed() -> (i32, i32, i32, i32, i32) {
   %4 = ceildivi_signed %0, %3 : i32
 
   %5 = constant -9 : i32
- 
+
   // ceil(-9, 2) = -4
   // CHECK-NEXT: [[CM4:%.+]] = constant -4 : i32
   %6 = ceildivi_signed %5, %1 : i32
- 
+
   %7 = constant -15 : i32
 
   // ceil(-15, -2) = 8

@@ -3276,7 +3276,6 @@ struct AssumeAlignmentOpLowering
   }
 };
 
-
 class SignedFloorDivIOpLowering
     : public ConvertOpToLLVMPattern<SignedFloorDivIOp> {
 public:
@@ -3308,7 +3307,8 @@ public:
     auto posRes = rewriter.create<SignedDivIOp>(loc, a, b);
     // Result is (a*b<0) ? negative result : positive result.
     auto aTimesB = rewriter.create<MulIOp>(loc, a, b);
-    auto compareRes = rewriter.create<CmpIOp>(loc, CmpIPredicate::slt, aTimesB, zero);
+    auto compareRes =
+        rewriter.create<CmpIOp>(loc, CmpIPredicate::slt, aTimesB, zero);
     auto res = rewriter.create<SelectOp>(loc, compareRes, negRes, posRes);
     // Perform substitution and return success.
     rewriter.replaceOp(op, {res});
@@ -3349,7 +3349,8 @@ public:
     auto negRes = rewriter.create<SubIOp>(loc, zero, minusADivB);
     // Result is (a*b>0) ? pos result : neg result.
     auto aTimesB = rewriter.create<MulIOp>(loc, a, b);
-    auto compareRes = rewriter.create<CmpIOp>(loc, CmpIPredicate::sgt, aTimesB, zero);
+    auto compareRes =
+        rewriter.create<CmpIOp>(loc, CmpIPredicate::sgt, aTimesB, zero);
     auto res = rewriter.create<SelectOp>(loc, compareRes, posRes, negRes);
     // Perform substitution and return success.
     rewriter.replaceOp(op, {res});

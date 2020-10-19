@@ -131,3 +131,51 @@ func @transpose(%arg0: memref<?x?x?xf32, offset: ?, strides: [?, ?, 1]>) {
   %0 = transpose %arg0 (i, j, k) -> (k, i, j) : memref<?x?x?xf32, offset: ?, strides: [?, ?, 1]> to memref<?x?x?xf32, affine_map<(d0, d1, d2)[s0, s1, s2] -> (d2 * s1 + s0 + d0 * s2 + d1)>>
   return
 }
+
+// -----
+
+// Test floor divide with signed integer
+// CHECK-LABEL: func @floordivi
+// CHECK-SAME : ([[ARG0:%[a-zA-Z0-9]+]]: !llvm.i32, [[ARG1:%[a-zA-Z0-9]+]]: !llvm.i32) -> !llvm.i32
+// CHECK      : [[ONE:%[a-zA-Z0-9]+]] = llvm.mlir.constant(1 : i32) : !llvm.i32
+// CHECK      : [[ZERO:%[a-zA-Z0-9]+]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK      : [[MINONE:%[a-zA-Z0-9]+]] = llvm.mlir.constant(-1 : i32) : !llvm.i32
+// CHECK      : [[CMP1:%[a-zA-Z0-9]+]] = llvm.icmp "slt" [[ARG1]], [[ZERO]] : !llvm.i32
+// CHECK      : [[X:%[a-zA-Z0-9]+]] = llvm.select [[CMP1]], [[ONE]], [[MINONE]] : !llvm.i1, !llvm.i32
+// CHECK      : [[TRUE1:%[a-zA-Z0-9]+]] = llvm.sub [[X]], [[ARG0]] : !llvm.i32
+// CHECK      : [[TRUE2:%[a-zA-Z0-9]+]] = llvm.sdiv [[TRUE1]], [[ARG1]] : !llvm.i32
+// CHECK      : [[TRUE3:%[a-zA-Z0-9]+]] = llvm.sub [[MINONE]], [[TRUE2]] : !llvm.i32
+// CHECK      : [[FALSE:%[a-zA-Z0-9]+]] = llvm.sdiv [[ARG0]], [[ARG1]] : !llvm.i32
+// CHECK      : [[VAL:%[a-zA-Z0-9]+]] = llvm.mul [[ARG0]], [[ARG1]] : !llvm.i32
+// CHECK      : [[CMP2:%[a-zA-Z0-9]+]] = llvm.icmp "slt" [[VAL]], [[ZERO]] : !llvm.i32
+// CHECK      : [[RES:%[a-zA-Z0-9]+]] = llvm.select [[CMP2]], [[TRUE3]], [[FALSE]] : !llvm.i1, !llvm.i32
+// CHECK      : llvm.return [[RES]] : !llvm.i32
+func @floordivi(%arg0: i32, %arg1: i32) -> (i32) {
+  %res = floordivi_signed %arg0, %arg1 : i32
+  return %res : i32
+}
+
+// -----
+
+// Test ceil divide with signed integer
+// CHECK-LABEL: func @ceildivi
+// CHECK-SAME : ([[ARG0:%[a-zA-Z0-9]+]]: !llvm.i32, [[ARG1:%[a-zA-Z0-9]+]]: !llvm.i32) -> !llvm.i32
+// CHECK      : [[ONE:%[a-zA-Z0-9]+]] = llvm.mlir.constant(1 : i32) : !llvm.i32
+// CHECK      : [[ZERO:%[a-zA-Z0-9]+]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK      : [[MINONE:%[a-zA-Z0-9]+]] = llvm.mlir.constant(-1 : i32) : !llvm.i32
+// CHECK      : [[CMP1:%[a-zA-Z0-9]+]] = llvm.icmp "sgt" [[ARG1]], [[ZERO]] : !llvm.i32
+// CHECK      : [[X:%[a-zA-Z0-9]+]] = llvm.select [[CMP1]], [[MINONE]], [[ONE]] : !llvm.i1, !llvm.i32
+// CHECK      : [[TRUE1:%[a-zA-Z0-9]+]] = llvm.add [[X]], [[ARG0]] : !llvm.i32
+// CHECK      : [[TRUE2:%[a-zA-Z0-9]+]] = llvm.sdiv [[TRUE1]], [[ARG1]] : !llvm.i32
+// CHECK      : [[TRUE3:%[a-zA-Z0-9]+]] = llvm.add [[ONE]], [[TRUE2]] : !llvm.i32
+// CHECK      : [[FALSE1:%[a-zA-Z0-9]+]] = llvm.sub [[ZERO]], [[ARG0]] : !llvm.i32
+// CHECK      : [[FALSE2:%[a-zA-Z0-9]+]] = llvm.sdiv [[FALSE1]], [[ARG1]] : !llvm.i32
+// CHECK      : [[FALSE3:%[a-zA-Z0-9]+]] = llvm.sub [[ZERO]], [[FALSE2]] : !llvm.i32
+// CHECK      : [[VAL:%[a-zA-Z0-9]+]] = llvm.mul [[ARG0]], [[ARG1]] : !llvm.i32
+// CHECK      : [[CMP2:%[a-zA-Z0-9]+]] = llvm.icmp "sgt" [[VAL]], [[ZERO]] : !llvm.i32
+// CHECK      : [[RES:%[a-zA-Z0-9]+]] = llvm.select [[CMP2]], [[TRUE3]], [[FALSE3]] : !llvm.i1, !llvm.i32
+// CHECK      : llvm.return [[RES]] : !llvm.i32
+func @ceildivi(%arg0: i32, %arg1: i32) -> (i32) {
+  %res = ceildivi_signed %arg0, %arg1 : i32
+  return %res : i32
+}
