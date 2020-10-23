@@ -3284,32 +3284,32 @@ public:
   LogicalResult
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    auto loc = op->getLoc();
+    Location loc = op->getLoc();
     SignedFloorDivIOpAdaptor adaptor(operands);
-    auto signedFloorDivIOp = cast<SignedFloorDivIOp>(op);
-    auto type = signedFloorDivIOp.getType();
-    auto a = signedFloorDivIOp.lhs();
-    auto b = signedFloorDivIOp.rhs();
-    auto plusOne =
+    SignedFloorDivIOp signedFloorDivIOp = cast<SignedFloorDivIOp>(op);
+    Type type = signedFloorDivIOp.getType();
+    Value a = signedFloorDivIOp.lhs();
+    Value b = signedFloorDivIOp.rhs();
+    Value plusOne =
         rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, 1));
-    auto zero =
+    Value zero =
         rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, 0));
-    auto minusOne =
+    Value minusOne =
         rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, -1));
     // Compute x = (b<0) ? 1 : -1.
-    auto compare = rewriter.create<CmpIOp>(loc, CmpIPredicate::slt, b, zero);
-    auto x = rewriter.create<SelectOp>(loc, compare, plusOne, minusOne);
+    Value compare = rewriter.create<CmpIOp>(loc, CmpIPredicate::slt, b, zero);
+    Value x = rewriter.create<SelectOp>(loc, compare, plusOne, minusOne);
     // Compute negative res: -1 - ((x-a)/b).
-    auto xMinusA = rewriter.create<SubIOp>(loc, x, a);
-    auto xMinusADivB = rewriter.create<SignedDivIOp>(loc, xMinusA, b);
-    auto negRes = rewriter.create<SubIOp>(loc, minusOne, xMinusADivB);
+    Value xMinusA = rewriter.create<SubIOp>(loc, x, a);
+    Value xMinusADivB = rewriter.create<SignedDivIOp>(loc, xMinusA, b);
+    Value negRes = rewriter.create<SubIOp>(loc, minusOne, xMinusADivB);
     // Compute positive res: a/b.
-    auto posRes = rewriter.create<SignedDivIOp>(loc, a, b);
+    Value posRes = rewriter.create<SignedDivIOp>(loc, a, b);
     // Result is (a*b<0) ? negative result : positive result.
-    auto aTimesB = rewriter.create<MulIOp>(loc, a, b);
-    auto compareRes =
+    Value aTimesB = rewriter.create<MulIOp>(loc, a, b);
+    Value compareRes =
         rewriter.create<CmpIOp>(loc, CmpIPredicate::slt, aTimesB, zero);
-    auto res = rewriter.create<SelectOp>(loc, compareRes, negRes, posRes);
+    Value res = rewriter.create<SelectOp>(loc, compareRes, negRes, posRes);
     // Perform substitution and return success.
     rewriter.replaceOp(op, {res});
     return success();
@@ -3324,34 +3324,34 @@ public:
   LogicalResult
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    auto loc = op->getLoc();
+    Location loc = op->getLoc();
     SignedCeilDivIOpAdaptor adaptor(operands);
-    auto signedCeilDivIOp = cast<SignedCeilDivIOp>(op);
-    auto type = signedCeilDivIOp.getType();
-    auto a = signedCeilDivIOp.lhs();
-    auto b = signedCeilDivIOp.rhs();
-    auto plusOne =
+    SignedCeilDivOp signedCeilDivIOp = cast<SignedCeilDivIOp>(op);
+    Type type = signedCeilDivIOp.getType();
+    Value a = signedCeilDivIOp.lhs();
+    Value b = signedCeilDivIOp.rhs();
+    Value plusOne =
         rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, 1));
-    auto zero =
+    Value zero =
         rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, 0));
-    auto minusOne =
+    Value minusOne =
         rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, -1));
     // Compute x = (b>0) ? -1 : 1.
-    auto compare = rewriter.create<CmpIOp>(loc, CmpIPredicate::sgt, b, zero);
-    auto x = rewriter.create<SelectOp>(loc, compare, minusOne, plusOne);
+    Value compare = rewriter.create<CmpIOp>(loc, CmpIPredicate::sgt, b, zero);
+    Value x = rewriter.create<SelectOp>(loc, compare, minusOne, plusOne);
     // Compute positive res: 1 + ((x+a)/b).
-    auto xPlusA = rewriter.create<AddIOp>(loc, x, a);
-    auto xPlusADivB = rewriter.create<SignedDivIOp>(loc, xPlusA, b);
-    auto posRes = rewriter.create<AddIOp>(loc, plusOne, xPlusADivB);
+    Value xPlusA = rewriter.create<AddIOp>(loc, x, a);
+    Value xPlusADivB = rewriter.create<SignedDivIOp>(loc, xPlusA, b);
+    Value posRes = rewriter.create<AddIOp>(loc, plusOne, xPlusADivB);
     // Compute negative res: - ((-a)/b).
-    auto minusA = rewriter.create<SubIOp>(loc, zero, a);
-    auto minusADivB = rewriter.create<SignedDivIOp>(loc, minusA, b);
-    auto negRes = rewriter.create<SubIOp>(loc, zero, minusADivB);
+    Value minusA = rewriter.create<SubIOp>(loc, zero, a);
+    Value minusADivB = rewriter.create<SignedDivIOp>(loc, minusA, b);
+    Value negRes = rewriter.create<SubIOp>(loc, zero, minusADivB);
     // Result is (a*b>0) ? pos result : neg result.
-    auto aTimesB = rewriter.create<MulIOp>(loc, a, b);
-    auto compareRes =
+    Value aTimesB = rewriter.create<MulIOp>(loc, a, b);
+    Value compareRes =
         rewriter.create<CmpIOp>(loc, CmpIPredicate::sgt, aTimesB, zero);
-    auto res = rewriter.create<SelectOp>(loc, compareRes, posRes, negRes);
+    Value res = rewriter.create<SelectOp>(loc, compareRes, posRes, negRes);
     // Perform substitution and return success.
     rewriter.replaceOp(op, {res});
     return success();

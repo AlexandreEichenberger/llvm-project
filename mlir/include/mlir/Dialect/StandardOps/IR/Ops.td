@@ -2610,8 +2610,7 @@ def SignedFloorDivIOp : IntArithmeticOp<"floordivi_signed"> {
     operation ::= ssa-id `=` `floordivi_signed` ssa-use `,` ssa-use `:` type
     ```
 
-    Signed integer division. Rounds towards negative infinity. Treats the leading bit as
-    sign, i.e. `6 / -2 = -3`.
+    Signed integer division. Rounds towards negative infinity, i.e. `5 / -2 = -3`.
 
     Note: the semantics of division by zero or signed division overflow (minimum
     value divided by -1) is TBD; do NOT assume any specific behavior.
@@ -2620,13 +2619,8 @@ def SignedFloorDivIOp : IntArithmeticOp<"floordivi_signed"> {
 
     ```mlir
     // Scalar signed integer division.
-    %a = floordivis %b, %c : i64
+    %a = floordivi_signed %b, %c : i64
 
-    // SIMD vector element-wise division.
-    %f = floordivis %g, %h : vector<4xi32>
-
-    // Tensor element-wise integer division.
-    %x = floordivis %y, %z : tensor<4x?xi8>
     ```
   }];
   let hasFolder = 1;
@@ -2645,8 +2639,7 @@ def SignedCeilDivIOp : IntArithmeticOp<"ceildivi_signed"> {
     operation ::= ssa-id `=` `ceildivi_signed` ssa-use `,` ssa-use `:` type
     ```
 
-    Signed integer division. Rounds towards positive infinity. Treats the leading bit as
-    sign, i.e. `6 / -2 = -3`.
+    Signed integer division. Rounds towards positive infinity, i.e. `7 / -2 = -3`.
 
     Note: the semantics of division by zero or signed division overflow (minimum
     value divided by -1) is TBD; do NOT assume any specific behavior.
@@ -2655,13 +2648,7 @@ def SignedCeilDivIOp : IntArithmeticOp<"ceildivi_signed"> {
 
     ```mlir
     // Scalar signed integer division.
-    %a = ceildivis %b, %c : i64
-
-    // SIMD vector element-wise division.
-    %f = ceildivis %g, %h : vector<4xi32>
-
-    // Tensor element-wise integer division.
-    %x = ceildivis %y, %z : tensor<4x?xi8>
+    %a = ceildivi_signed %b, %c : i64
     ```
   }];
   let hasFolder = 1;

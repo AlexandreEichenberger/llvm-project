@@ -2423,7 +2423,7 @@ OpFoldResult SignedDivIOp::fold(ArrayRef<Attribute> operands) {
 // SignedFloorDivIOp
 //===----------------------------------------------------------------------===//
 
-static APInt SignedCeilNonnegInputs(APInt a, APInt b, bool &overflow) {
+static APInt signedCeilNonnegInputs(APInt a, APInt b, bool &overflow) {
   // Returns (a-1)/b + 1
   APInt one(a.getBitWidth(), 1, true); // Signed value 1.
   APInt val = a.ssub_ov(one, overflow).sdiv_ov(b, overflow);
@@ -2453,12 +2453,12 @@ OpFoldResult SignedFloorDivIOp::fold(ArrayRef<Attribute> operands) {
     } else if (a.slt(zero) && b.sgt(zero)) {
       // A is negative, b is positive, return - ceil(-a, b).
       APInt posA = zero.ssub_ov(a, overflowOrDiv0);
-      APInt ceil = SignedCeilNonnegInputs(posA, b, overflowOrDiv0);
+      APInt ceil = signedCeilNonnegInputs(posA, b, overflowOrDiv0);
       return zero.ssub_ov(ceil, overflowOrDiv0);
     } else {
       // A is positive, b is negative, return - ceil(a, -b).
       APInt posB = zero.ssub_ov(b, overflowOrDiv0);
-      APInt ceil = SignedCeilNonnegInputs(a, posB, overflowOrDiv0);
+      APInt ceil = signedCeilNonnegInputs(a, posB, overflowOrDiv0);
       return zero.ssub_ov(ceil, overflowOrDiv0);
     }
   });
