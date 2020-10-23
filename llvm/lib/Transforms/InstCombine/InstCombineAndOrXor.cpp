@@ -1985,7 +1985,9 @@ Instruction *InstCombinerImpl::visitAnd(BinaryOperator &I) {
   return nullptr;
 }
 
-Instruction *InstCombinerImpl::matchBSwap(BinaryOperator &Or) {
+Instruction *InstCombinerImpl::matchBSwapOrBitReverse(BinaryOperator &Or,
+                                                      bool MatchBSwaps,
+                                                      bool MatchBitReversals) {
   assert(Or.getOpcode() == Instruction::Or && "bswap requires an 'or'");
   Value *Op0 = Or.getOperand(0), *Op1 = Or.getOperand(1);
 
@@ -2011,8 +2013,9 @@ Instruction *InstCombinerImpl::matchBSwap(BinaryOperator &Or) {
   if (!OrWithOrs && !OrWithShifts && !OrWithAnds)
     return nullptr;
 
-  SmallVector<Instruction*, 4> Insts;
-  if (!recognizeBSwapOrBitReverseIdiom(&Or, true, false, Insts))
+  SmallVector<Instruction *, 4> Insts;
+  if (!recognizeBSwapOrBitReverseIdiom(&Or, MatchBSwaps, MatchBitReversals,
+                                       Insts))
     return nullptr;
   Instruction *LastInst = Insts.pop_back_val();
   LastInst->removeFromParent();
@@ -2301,15 +2304,15 @@ Value *InstCombinerImpl::foldOrOfICmps(ICmpInst *LHS, ICmpInst *RHS,
       LHSC->getType() == RHSC->getType() &&
       LHSC->getValue() == (RHSC->getValue())) {
 
-    Value *LAddOpnd, *RAddOpnd;
+    Value *AddOpnd;
     ConstantInt *LAddC, *RAddC;
-    if (match(LHS0, m_Add(m_Value(LAddOpnd), m_ConstantInt(LAddC))) &&
-        match(RHS0, m_Add(m_Value(RAddOpnd), m_ConstantInt(RAddC))) &&
+    if (match(LHS0, m_Add(m_Value(AddOpnd), m_ConstantInt(LAddC))) &&
+        match(RHS0, m_Add(m_Specific(AddOpnd), m_ConstantInt(RAddC))) &&
         LAddC->getValue().ugt(LHSC->getValue()) &&
         RAddC->getValue().ugt(LHSC->getValue())) {
 
       APInt DiffC = LAddC->getValue() ^ RAddC->getValue();
-      if (LAddOpnd == RAddOpnd && DiffC.isPowerOf2()) {
+      if (DiffC.isPowerOf2()) {
         ConstantInt *MaxAddC = nullptr;
         if (LAddC->getValue().ult(RAddC->getValue()))
           MaxAddC = RAddC;
@@ -2329,7 +2332,7 @@ Value *InstCombinerImpl::foldOrOfICmps(ICmpInst *LHS, ICmpInst *RHS,
             RangeDiff.ugt(LHSC->getValue())) {
           Value *MaskC = ConstantInt::get(LAddC->getType(), ~DiffC);
 
-          Value *NewAnd = Builder.CreateAnd(LAddOpnd, MaskC);
+          Value *NewAnd = Builder.CreateAnd(AddOpnd, MaskC);
           Value *NewAdd = Builder.CreateAdd(NewAnd, MaxAddC);
           return Builder.CreateICmp(LHS->getPredicate(), NewAdd, LHSC);
         }
@@ -2563,7 +2566,8 @@ Instruction *InstCombinerImpl::visitOr(BinaryOperator &I) {
   if (Instruction *FoldedLogic = foldBinOpIntoSelectOrPhi(I))
     return FoldedLogic;
 
-  if (Instruction *BSwap = matchBSwap(I))
+  if (Instruction *BSwap = matchBSwapOrBitReverse(I, /*MatchBSwaps*/ true,
+                                                  /*MatchBitReversals*/ false))
     return BSwap;
 
   if (Instruction *Funnel = matchFunnelShift(I, *this))
