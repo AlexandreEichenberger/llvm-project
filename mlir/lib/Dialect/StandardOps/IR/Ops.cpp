@@ -2812,12 +2812,12 @@ OpFoldResult SignedCeilDivIOp::fold(ArrayRef<Attribute> operands) {
     APInt zero = APInt::getNullValue(bits);
     if (a.sgt(zero) && b.sgt(zero)) {
       // Both positive, return ceil(a, b).
-      return SignedCeilNonnegInputs(a, b, overflowOrDiv0);
+      return signedCeilNonnegInputs(a, b, overflowOrDiv0);
     } else if (a.slt(zero) && b.slt(zero)) {
       // Both negative, return ceil(-a, -b).
       APInt posA = zero.ssub_ov(a, overflowOrDiv0);
       APInt posB = zero.ssub_ov(b, overflowOrDiv0);
-      return SignedCeilNonnegInputs(posA, posB, overflowOrDiv0);
+      return signedCeilNonnegInputs(posA, posB, overflowOrDiv0);
     } else if (a.slt(zero) && b.sgt(zero)) {
       // A is negative, b is positive, return - ( -a / b).
       APInt posA = zero.ssub_ov(a, overflowOrDiv0);

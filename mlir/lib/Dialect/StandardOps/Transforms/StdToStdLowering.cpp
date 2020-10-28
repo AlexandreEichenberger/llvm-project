@@ -1,0 +1,148 @@
+//===- ExpandTanh.cpp - Code to perform expanding tanh op -----------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// This file implements expansion of tanh op.
+//
+//===----------------------------------------------------------------------===//
+
+#include "PassDetail.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/StandardOps/Transforms/Passes.h"
+#include "mlir/IR/Attributes.h"
+#include "mlir/IR/BlockAndValueMapping.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Module.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/TypeUtilities.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Support/LogicalResult.h"
+#include "mlir/Support/MathExtras.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/Passes.h"
+#include "mlir/Transforms/Utils.h"
+
+using namespace mlir;
+
+namespace {
+
+/// Expands SignedCeilDivIOP (n, m) into
+///   1) x = (m > 0) ? -1 : 1
+///   2) (n*m>0) ? ((n+x) / m) + 1 : - (-n / m)
+
+struct SignedCeilDivIOpConverter : public OpRewritePattern<SignedCeilDivIOp> {
+public:
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(SignedCeilDivIOp op,
+                                PatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    SignedCeilDivIOp signedCeilDivIOp = cast<SignedCeilDivIOp>(op);
+    Type type = signedCeilDivIOp.getType();
+    Value a = signedCeilDivIOp.lhs();
+    Value b = signedCeilDivIOp.rhs();
+    Value plusOne =
+        rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, 1));
+    Value zero =
+        rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, 0));
+    Value minusOne =
+        rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, -1));
+    // Compute x = (b>0) ? -1 : 1.
+    Value compare = rewriter.create<CmpIOp>(loc, CmpIPredicate::sgt, b, zero);
+    Value x = rewriter.create<SelectOp>(loc, compare, minusOne, plusOne);
+    // Compute positive res: 1 + ((x+a)/b).
+    Value xPlusA = rewriter.create<AddIOp>(loc, x, a);
+    Value xPlusADivB = rewriter.create<SignedDivIOp>(loc, xPlusA, b);
+    Value posRes = rewriter.create<AddIOp>(loc, plusOne, xPlusADivB);
+    // Compute negative res: - ((-a)/b).
+    Value minusA = rewriter.create<SubIOp>(loc, zero, a);
+    Value minusADivB = rewriter.create<SignedDivIOp>(loc, minusA, b);
+    Value negRes = rewriter.create<SubIOp>(loc, zero, minusADivB);
+    // Result is (a*b>0) ? pos result : neg result.
+    Value aTimesB = rewriter.create<MulIOp>(loc, a, b);
+    Value compareRes =
+        rewriter.create<CmpIOp>(loc, CmpIPredicate::sgt, aTimesB, zero);
+    Value res = rewriter.create<SelectOp>(loc, compareRes, posRes, negRes);
+    // Perform substitution and return success.
+    rewriter.replaceOp(op, {res});
+    return success();
+  }
+};
+
+/// Expands SignedFloorDivIOP (n, m) into
+///   1)  x = (m<0) ? 1 : -1
+///   2)  return (n*m<0) ? - ((-n+x) / m) -1 : n / m
+
+struct SignedFloorDivIOpConverter : public OpRewritePattern<SignedFloorDivIOp> {
+public:
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(SignedFloorDivIOp op,
+                                PatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    SignedFloorDivIOp signedFloorDivIOp = cast<SignedFloorDivIOp>(op);
+    Type type = signedFloorDivIOp.getType();
+    Value a = signedFloorDivIOp.lhs();
+    Value b = signedFloorDivIOp.rhs();
+    Value plusOne =
+        rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, 1));
+    Value zero =
+        rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, 0));
+    Value minusOne =
+        rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(type, -1));
+    // Compute x = (b<0) ? 1 : -1.
+    Value compare = rewriter.create<CmpIOp>(loc, CmpIPredicate::slt, b, zero);
+    Value x = rewriter.create<SelectOp>(loc, compare, plusOne, minusOne);
+    // Compute negative res: -1 - ((x-a)/b).
+    Value xMinusA = rewriter.create<SubIOp>(loc, x, a);
+    Value xMinusADivB = rewriter.create<SignedDivIOp>(loc, xMinusA, b);
+    Value negRes = rewriter.create<SubIOp>(loc, minusOne, xMinusADivB);
+    // Compute positive res: a/b.
+    Value posRes = rewriter.create<SignedDivIOp>(loc, a, b);
+    // Result is (a*b<0) ? negative result : positive result.
+    Value aTimesB = rewriter.create<MulIOp>(loc, a, b);
+    Value compareRes =
+        rewriter.create<CmpIOp>(loc, CmpIPredicate::slt, aTimesB, zero);
+    Value res = rewriter.create<SelectOp>(loc, compareRes, negRes, posRes);
+    // Perform substitution and return success.
+    rewriter.replaceOp(op, {res});
+    return success();
+  }
+};
+
+} // namespace
+
+namespace {
+struct StdToStdLowering : public StdToStdLoweringBase<StdToStdLowering> {
+  void runOnFunction() override;
+};
+} // namespace
+
+void mlir::populateStdToStdRewritePatterns(MLIRContext *context,
+                                           OwningRewritePatternList &patterns) {
+  patterns.insert<SignedCeilDivIOpConverter, SignedFloorDivIOpConverter>(
+      context);
+}
+
+void StdToStdLowering::runOnFunction() {
+  MLIRContext &ctx = getContext();
+
+  OwningRewritePatternList patterns;
+  populateStdToStdRewritePatterns(&ctx, patterns);
+
+  ConversionTarget target(getContext());
+  target.addLegalDialect<StandardOpsDialect>();
+  target.addIllegalOp<SignedCeilDivIOp>();
+  target.addIllegalOp<SignedFloorDivIOp>();
+  if (failed(mlir::applyPartialConversion(getFunction(), target, patterns)))
+    signalPassFailure();
+}
+
+std::unique_ptr<Pass> mlir::createStdToStdLowering() {
+  return std::make_unique<StdToStdLowering>();
+}

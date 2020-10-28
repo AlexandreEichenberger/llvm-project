@@ -22,4 +22,9 @@ def StdBufferize : FunctionPass<"std-bufferize"> {
   let dependentDialects = ["scf::SCFDialect"];
 }
 
+def StdToStdLowering : FunctionPass<"std-to-std-lowering"> {
+  let summary = "Legalize std dialect to be convertible to LLVM.";
+  let constructor = "mlir::createStdToStdLowering()";
+}
+
 #endif // MLIR_DIALECT_STANDARD_TRANSFORMS_PASSES
