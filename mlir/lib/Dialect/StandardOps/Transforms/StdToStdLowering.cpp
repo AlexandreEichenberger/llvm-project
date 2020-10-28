@@ -1,4 +1,4 @@
-//===- ExpandTanh.cpp - Code to perform expanding tanh op -----------------===//
+//===- StdToStdLowering.cpp - Code to prepare Std for lowring to LLVM  ----===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,26 +6,15 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements expansion of tanh op.
+// This file Std to Std transformations to help for the lowering to LLVM.
+// Currently implemented tranformations are Ceil and Floor for Integers.
 //
 //===----------------------------------------------------------------------===//
 
 #include "PassDetail.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/StandardOps/Transforms/Passes.h"
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/BlockAndValueMapping.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/Module.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/TypeUtilities.h"
-#include "mlir/Pass/Pass.h"
-#include "mlir/Support/LogicalResult.h"
-#include "mlir/Support/MathExtras.h"
-#include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/Passes.h"
-#include "mlir/Transforms/Utils.h"
 
 using namespace mlir;
 
@@ -34,7 +23,6 @@ namespace {
 /// Expands SignedCeilDivIOP (n, m) into
 ///   1) x = (m > 0) ? -1 : 1
 ///   2) (n*m>0) ? ((n+x) / m) + 1 : - (-n / m)
-
 struct SignedCeilDivIOpConverter : public OpRewritePattern<SignedCeilDivIOp> {
 public:
   using OpRewritePattern::OpRewritePattern;
@@ -77,7 +65,6 @@ public:
 /// Expands SignedFloorDivIOP (n, m) into
 ///   1)  x = (m<0) ? 1 : -1
 ///   2)  return (n*m<0) ? - ((-n+x) / m) -1 : n / m
-
 struct SignedFloorDivIOpConverter : public OpRewritePattern<SignedFloorDivIOp> {
 public:
   using OpRewritePattern::OpRewritePattern;
@@ -123,12 +110,6 @@ struct StdToStdLowering : public StdToStdLoweringBase<StdToStdLowering> {
 };
 } // namespace
 
-void mlir::populateStdToStdRewritePatterns(MLIRContext *context,
-                                           OwningRewritePatternList &patterns) {
-  patterns.insert<SignedCeilDivIOpConverter, SignedFloorDivIOpConverter>(
-      context);
-}
-
 void StdToStdLowering::runOnFunction() {
   MLIRContext &ctx = getContext();
 
@@ -139,8 +120,15 @@ void StdToStdLowering::runOnFunction() {
   target.addLegalDialect<StandardOpsDialect>();
   target.addIllegalOp<SignedCeilDivIOp>();
   target.addIllegalOp<SignedFloorDivIOp>();
-  if (failed(mlir::applyPartialConversion(getFunction(), target, patterns)))
+  if (failed(
+          applyPartialConversion(getFunction(), target, std::move(patterns))))
     signalPassFailure();
+}
+
+void mlir::populateStdToStdRewritePatterns(MLIRContext *context,
+                                           OwningRewritePatternList &patterns) {
+  patterns.insert<SignedCeilDivIOpConverter, SignedFloorDivIOpConverter>(
+      context);
 }
 
 std::unique_ptr<Pass> mlir::createStdToStdLowering() {
