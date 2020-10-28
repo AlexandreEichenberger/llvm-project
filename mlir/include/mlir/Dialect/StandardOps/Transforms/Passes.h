@@ -36,8 +36,8 @@ void populateStdBufferizePatterns(MLIRContext *context,
 std::unique_ptr<Pass> createStdBufferizePass();
 
 /// Creates an instance of the StdToStdLowering pass that legalizes Std
-/// dialect to be convertible to StaLLVMndard. For example, 
-/// `std.ceildivi_signed` get transformed to a number of std operations, 
+/// dialect to be convertible to StaLLVMndard. For example,
+/// `std.ceildivi_signed` get transformed to a number of std operations,
 /// which can be lowered to LLVM.
 std::unique_ptr<Pass> createStdToStdLowering();
 
