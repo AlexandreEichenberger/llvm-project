@@ -395,6 +395,8 @@ func @divi_unsigned_splat_tensor() -> (tensor<4xi32>, tensor<4xi32>, tensor<4xi3
 
   // CHECK-NEXT: [[XZ:%.+]] = divi_unsigned [[C6]], [[C0]]
   %5 = divi_unsigned %0, %z : tensor<4xi32>
+
+  return %2, %4, %5 : tensor<4xi32>, tensor<4xi32>, tensor<4xi32>
 }
 
 // -----
@@ -431,6 +433,8 @@ func @simple_floordivi_signed() -> (i32, i32, i32, i32, i32) {
 
   // CHECK-NEXT: [[XZ:%.+]] = floordivi_signed [[C6]], [[C0]]
   %9 = floordivi_signed %0, %z : i32
+
+  return %2, %4, %6, %8, %9 : i32, i32, i32, i32, i32
 }
 
 // -----
