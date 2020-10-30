@@ -15,7 +15,6 @@ func @floordivi(%arg0: i32, %arg1: i32) -> (i32) {
 // CHECK:           [[TRUE2:%.+]] = divi_signed [[TRUE1]], [[ARG1]] : i32
 // CHECK:           [[TRUE3:%.+]] = subi [[MIN1]], [[TRUE2]] : i32
 // CHECK:           [[FALSE:%.+]] = divi_signed [[ARG0]], [[ARG1]] : i32
-
 // CHECK:           [[NNEG:%.+]] = cmpi "slt", [[ARG0]], [[ZERO]] : i32
 // CHECK:           [[NPOS:%.+]] = cmpi "sgt", [[ARG0]], [[ZERO]] : i32
 // CHECK:           [[MNEG:%.+]] = cmpi "slt", [[ARG1]], [[ZERO]] : i32
