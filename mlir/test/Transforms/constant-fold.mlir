@@ -472,7 +472,6 @@ func @simple_ceildivi_signed() -> (i32, i32, i32, i32, i32) {
   // CHECK-NEXT: [[XZ:%.+]] = ceildivi_signed [[C6]], [[C0]]
   %9 = ceildivi_signed %0, %z : i32
 
-  // CHECK-NEXT: return [[C3]], [[CM3]], [[CM4]], [[CM5]], [[XZ]]
   return %2, %4, %6, %8, %9 : i32, i32, i32, i32, i32
 }
 
