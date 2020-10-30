@@ -26,7 +26,6 @@ namespace {
 struct SignedCeilDivIOpConverter : public OpRewritePattern<SignedCeilDivIOp> {
 public:
   using OpRewritePattern::OpRewritePattern;
-
   LogicalResult matchAndRewrite(SignedCeilDivIOp op,
                                 PatternRewriter &rewriter) const final {
     Location loc = op.getLoc();
@@ -78,7 +77,6 @@ public:
 struct SignedFloorDivIOpConverter : public OpRewritePattern<SignedFloorDivIOp> {
 public:
   using OpRewritePattern::OpRewritePattern;
-
   LogicalResult matchAndRewrite(SignedFloorDivIOp op,
                                 PatternRewriter &rewriter) const final {
     Location loc = op.getLoc();
