@@ -1543,13 +1543,9 @@ void SIInstrInfo::insertNoops(MachineBasicBlock &MBB,
                               unsigned Quantity) const {
   DebugLoc DL = MBB.findDebugLoc(MI);
   while (Quantity > 0) {
-    unsigned Arg;
-    if (Quantity >= 8)
-      Arg = 7;
-    else
-      Arg = Quantity - 1;
-    Quantity -= Arg + 1;
-    BuildMI(MBB, MI, DL, get(AMDGPU::S_NOP)).addImm(Arg);
+    unsigned Arg = std::min(Quantity, 8u);
+    Quantity -= Arg;
+    BuildMI(MBB, MI, DL, get(AMDGPU::S_NOP)).addImm(Arg - 1);
   }
 }
 
@@ -3506,13 +3502,7 @@ static bool shouldReadExec(const MachineInstr &MI) {
   if (SIInstrInfo::isVALU(MI)) {
     switch (MI.getOpcode()) {
     case AMDGPU::V_READLANE_B32:
-    case AMDGPU::V_READLANE_B32_gfx6_gfx7:
-    case AMDGPU::V_READLANE_B32_gfx10:
-    case AMDGPU::V_READLANE_B32_vi:
     case AMDGPU::V_WRITELANE_B32:
-    case AMDGPU::V_WRITELANE_B32_gfx6_gfx7:
-    case AMDGPU::V_WRITELANE_B32_gfx10:
-    case AMDGPU::V_WRITELANE_B32_vi:
       return false;
     }
 
@@ -3886,6 +3876,15 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr &MI,
         ErrInfo = "v_div_scale_{f32|f64} require src0 = src1 or src2";
         return false;
       }
+    }
+    if ((getNamedOperand(MI, AMDGPU::OpName::src0_modifiers)->getImm() &
+         SISrcMods::ABS) ||
+        (getNamedOperand(MI, AMDGPU::OpName::src1_modifiers)->getImm() &
+         SISrcMods::ABS) ||
+        (getNamedOperand(MI, AMDGPU::OpName::src2_modifiers)->getImm() &
+         SISrcMods::ABS)) {
+      ErrInfo = "ABS not allowed in VOP3B instructions";
+      return false;
     }
   }
 
