@@ -396,6 +396,7 @@ func @divi_unsigned_splat_tensor() -> (tensor<4xi32>, tensor<4xi32>, tensor<4xi3
   // CHECK-NEXT: [[XZ:%.+]] = divi_unsigned [[C6]], [[C0]]
   %5 = divi_unsigned %0, %z : tensor<4xi32>
 
+  // CHECK-NEXT: return [[C3]], [[C0]], [[XZ]]
   return %2, %4, %5 : tensor<4xi32>, tensor<4xi32>, tensor<4xi32>
 }
 
