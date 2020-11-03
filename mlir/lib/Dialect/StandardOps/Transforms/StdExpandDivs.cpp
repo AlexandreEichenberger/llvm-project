@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file Std transformations to expand Divs operation to help for the 
-// lowering to LLVM. Currently implemented tranformations are Ceil and Floor 
+// This file Std transformations to expand Divs operation to help for the
+// lowering to LLVM. Currently implemented tranformations are Ceil and Floor
 // for Signed Integers.
 //
 //===----------------------------------------------------------------------===//
