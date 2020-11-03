@@ -338,6 +338,7 @@ ISD::NodeType ISD::getVecReduceBaseOpcode(unsigned VecReduceOpcode) {
   default:
     llvm_unreachable("Expected VECREDUCE opcode");
   case ISD::VECREDUCE_FADD:
+  case ISD::VECREDUCE_SEQ_FADD:
     return ISD::FADD;
   case ISD::VECREDUCE_FMUL:
     return ISD::FMUL;
@@ -2959,19 +2960,8 @@ KnownBits SelectionDAG::computeKnownBits(SDValue Op, const APInt &DemandedElts,
   }
   case ISD::SHL:
     Known = computeKnownBits(Op.getOperand(0), DemandedElts, Depth + 1);
-
-    if (const APInt *ShAmt = getValidShiftAmountConstant(Op, DemandedElts)) {
-      unsigned Shift = ShAmt->getZExtValue();
-      Known.Zero <<= Shift;
-      Known.One <<= Shift;
-      // Low bits are known zero.
-      Known.Zero.setLowBits(Shift);
-      break;
-    }
-
-    // No matter the shift amount, the trailing zeros will stay zero.
-    Known.Zero = APInt::getLowBitsSet(BitWidth, Known.countMinTrailingZeros());
-    Known.One.clearAllBits();
+    Known2 = computeKnownBits(Op.getOperand(1), DemandedElts, Depth + 1);
+    Known = KnownBits::shl(Known, Known2);
 
     // Minimum shift low bits are known zero.
     if (const APInt *ShMinAmt =
@@ -2980,19 +2970,8 @@ KnownBits SelectionDAG::computeKnownBits(SDValue Op, const APInt &DemandedElts,
     break;
   case ISD::SRL:
     Known = computeKnownBits(Op.getOperand(0), DemandedElts, Depth + 1);
-
-    if (const APInt *ShAmt = getValidShiftAmountConstant(Op, DemandedElts)) {
-      unsigned Shift = ShAmt->getZExtValue();
-      Known.Zero.lshrInPlace(Shift);
-      Known.One.lshrInPlace(Shift);
-      // High bits are known zero.
-      Known.Zero.setHighBits(Shift);
-      break;
-    }
-
-    // No matter the shift amount, the leading zeros will stay zero.
-    Known.Zero = APInt::getHighBitsSet(BitWidth, Known.countMinLeadingZeros());
-    Known.One.clearAllBits();
+    Known2 = computeKnownBits(Op.getOperand(1), DemandedElts, Depth + 1);
+    Known = KnownBits::lshr(Known, Known2);
 
     // Minimum shift high bits are known zero.
     if (const APInt *ShMinAmt =
@@ -3000,13 +2979,10 @@ KnownBits SelectionDAG::computeKnownBits(SDValue Op, const APInt &DemandedElts,
       Known.Zero.setHighBits(ShMinAmt->getZExtValue());
     break;
   case ISD::SRA:
-    if (const APInt *ShAmt = getValidShiftAmountConstant(Op, DemandedElts)) {
-      Known = computeKnownBits(Op.getOperand(0), DemandedElts, Depth + 1);
-      unsigned Shift = ShAmt->getZExtValue();
-      // Sign extend known zero/one bit (else is unknown).
-      Known.Zero.ashrInPlace(Shift);
-      Known.One.ashrInPlace(Shift);
-    }
+    Known = computeKnownBits(Op.getOperand(0), DemandedElts, Depth + 1);
+    Known2 = computeKnownBits(Op.getOperand(1), DemandedElts, Depth + 1);
+    Known = KnownBits::ashr(Known, Known2);
+    // TODO: Add minimum shift high known sign bits.
     break;
   case ISD::FSHL:
   case ISD::FSHR:

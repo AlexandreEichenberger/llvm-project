@@ -8514,7 +8514,11 @@ bool ASTContext::areCompatibleVectorTypes(QualType FirstVec,
       First->getVectorKind() != VectorType::AltiVecPixel &&
       First->getVectorKind() != VectorType::AltiVecBool &&
       Second->getVectorKind() != VectorType::AltiVecPixel &&
-      Second->getVectorKind() != VectorType::AltiVecBool)
+      Second->getVectorKind() != VectorType::AltiVecBool &&
+      First->getVectorKind() != VectorType::SveFixedLengthDataVector &&
+      First->getVectorKind() != VectorType::SveFixedLengthPredicateVector &&
+      Second->getVectorKind() != VectorType::SveFixedLengthDataVector &&
+      Second->getVectorKind() != VectorType::SveFixedLengthPredicateVector)
     return true;
 
   return false;
@@ -10321,6 +10325,18 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
          "Integer constant 'I' type must be an integer");
 
   return Type;
+}
+
+// On some targets such as PowerPC, some of the builtins are defined with custom
+// type decriptors for target-dependent types. These descriptors are decoded in
+// other functions, but it may be useful to be able to fall back to default
+// descriptor decoding to define builtins mixing target-dependent and target-
+// independent types. This function allows decoding one type descriptor with
+// default decoding.
+QualType ASTContext::DecodeTypeStr(const char *&Str, const ASTContext &Context,
+                                   GetBuiltinTypeError &Error, bool &RequireICE,
+                                   bool AllowTypeModifiers) const {
+  return DecodeTypeFromStr(Str, Context, Error, RequireICE, AllowTypeModifiers);
 }
 
 /// GetBuiltinType - Return the type for the specified builtin.

@@ -1042,7 +1042,7 @@ bool GVN::AnalyzeLoadAvailability(LoadInst *LI, MemDepResult DepInfo,
 
   if (StoreInst *S = dyn_cast<StoreInst>(DepInst)) {
     // Reject loads and stores that are to the same address but are of
-    // different types if we have to. If the stored value is larger or equal to
+    // different types if we have to. If the stored value is convertable to
     // the loaded value, we can reuse it.
     if (!canCoerceMustAliasedValueToLoad(S->getValueOperand(), LI->getType(),
                                          DL))
@@ -2460,10 +2460,14 @@ bool GVN::performScalarPRE(Instruction *CurInst) {
   if (isa<GetElementPtrInst>(CurInst))
     return false;
 
-  // We don't currently value number ANY inline asm calls.
-  if (auto *CallB = dyn_cast<CallBase>(CurInst))
+  if (auto *CallB = dyn_cast<CallBase>(CurInst)) {
+    // We don't currently value number ANY inline asm calls.
     if (CallB->isInlineAsm())
       return false;
+    // Don't do PRE on convergent calls.
+    if (CallB->isConvergent())
+      return false;
+  }
 
   uint32_t ValNo = VN.lookup(CurInst);
 
