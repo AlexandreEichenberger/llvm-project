@@ -45,8 +45,9 @@ std::unique_ptr<Pass> createStdBufferizePass();
 std::unique_ptr<Pass> createStdExpandDivsPass();
 
 /// Collects a set of patterns to rewrite ops within the Std dialect.
-void populateStdToStdRewritePatterns(MLIRContext *context,
+void populateStdExpandDivsRewritePatterns(MLIRContext *context,
                                         OwningRewritePatternList &patterns);
+
 /// Creates an instance of func bufferization pass.
 std::unique_ptr<Pass> createFuncBufferizePass();
 

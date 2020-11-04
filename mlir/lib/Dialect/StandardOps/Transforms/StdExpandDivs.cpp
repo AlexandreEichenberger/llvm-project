@@ -133,7 +133,7 @@ void StdExpandDivs::runOnFunction() {
   MLIRContext &ctx = getContext();
 
   OwningRewritePatternList patterns;
-  populateStdToStdRewritePatterns(&ctx, patterns);
+  populateStdExpandDivsRewritePatterns(&ctx, patterns);
 
   ConversionTarget target(getContext());
   target.addLegalDialect<StandardOpsDialect>();
@@ -144,8 +144,8 @@ void StdExpandDivs::runOnFunction() {
     signalPassFailure();
 }
 
-void mlir::populateStdToStdRewritePatterns(MLIRContext *context,
-                                           OwningRewritePatternList &patterns) {
+void mlir::populateStdExpandDivsRewritePatterns(
+    MLIRContext *context, OwningRewritePatternList &patterns) {
   patterns.insert<SignedCeilDivIOpConverter, SignedFloorDivIOpConverter>(
       context);
 }
