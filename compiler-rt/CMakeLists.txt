@@ -119,13 +119,24 @@ if ("${COMPILER_RT_DEFAULT_TARGET_TRIPLE}" MATCHES ".*hf$")
     CHECK_SYMBOL_EXISTS (__thumb__ "" COMPILER_RT_ARM_THUMB)
   endif()
 endif()
+
+set(ANDROID_HAS_ELF_TLS 0)
 if ("${COMPILER_RT_DEFAULT_TARGET_TRIPLE}" MATCHES ".*android.*")
   set(ANDROID 1)
+  CHECK_CXX_SOURCE_COMPILES("
+int main() {
+#if __ANDROID_API__ >= 28
+    return 0;
+#else
+  #error NO_ELF_TLS
+  return 1;
+#endif
+}
+  " ANDROID_HAS_ELF_TLS)
+  string(REGEX MATCH "-target(=| +)[^ ]+android([0-9]+)" ANDROID_API_LEVEL "${CMAKE_C_FLAGS}")
+  set(ANDROID_API_LEVEL ${CMAKE_MATCH_2}) 
 endif()
 pythonize_bool(ANDROID)
-
-set(ANDROID_NDK_VERSION 18
-    CACHE STRING "Set this to the Android NDK version that you are using")
 
 set(COMPILER_RT_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(COMPILER_RT_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
@@ -278,6 +289,10 @@ if(NOT COMPILER_RT_HAS_FUNC_SYMBOL)
 endif()
 
 # Provide some common commmandline flags for Sanitizer runtimes.
+if(ANDROID_HAS_ELF_TLS)
+  list(APPEND SANITIZER_COMMON_CFLAGS -fno-emulated-tls)
+  list(APPEND COMPILER_RT_TEST_COMPILER_CFLAGS -fno-emulated-tls)
+endif()
 if(NOT WIN32)
   append_list_if(COMPILER_RT_HAS_FPIC_FLAG -fPIC SANITIZER_COMMON_CFLAGS)
 endif()
@@ -413,7 +428,6 @@ endif()
 append_list_if(COMPILER_RT_HAS_WGNU_FLAG -Wno-gnu SANITIZER_COMMON_CFLAGS)
 append_list_if(COMPILER_RT_HAS_WVARIADIC_MACROS_FLAG -Wno-variadic-macros SANITIZER_COMMON_CFLAGS)
 append_list_if(COMPILER_RT_HAS_WC99_EXTENSIONS_FLAG -Wno-c99-extensions SANITIZER_COMMON_CFLAGS)
-append_list_if(COMPILER_RT_HAS_WNON_VIRTUAL_DTOR_FLAG -Wno-non-virtual-dtor SANITIZER_COMMON_CFLAGS)
 append_list_if(COMPILER_RT_HAS_WD4146_FLAG /wd4146 SANITIZER_COMMON_CFLAGS)
 append_list_if(COMPILER_RT_HAS_WD4291_FLAG /wd4291 SANITIZER_COMMON_CFLAGS)
 append_list_if(COMPILER_RT_HAS_WD4391_FLAG /wd4391 SANITIZER_COMMON_CFLAGS)
@@ -597,7 +611,18 @@ else()
     set(COMPILER_RT_HAS_LLD TRUE)
   endif()
 endif()
+
+if(ANDROID)
+  set(COMPILER_RT_HAS_LLD TRUE)
+  set(COMPILER_RT_TEST_USE_LLD TRUE)
+  append_list_if(COMPILER_RT_HAS_FUSE_LD_LLD_FLAG -fuse-ld=lld SANITIZER_COMMON_LINK_FLAGS)
+  append_list_if(COMPILER_RT_HAS_LLD -fuse-ld=lld COMPILER_RT_UNITTEST_LINK_FLAGS)
+  if(COMPILER_RT_HAS_FUSE_LD_LLD_FLAG)
+    set(COMPILER_RT_HAS_GNU_VERSION_SCRIPT_COMPAT FALSE)
+  endif()
+endif()
 pythonize_bool(COMPILER_RT_HAS_LLD)
+pythonize_bool(COMPILER_RT_TEST_USE_LLD)
 
 add_subdirectory(lib)
 

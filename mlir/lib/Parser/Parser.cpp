@@ -846,6 +846,15 @@ public:
   ParseResult parseOperation(OperationState &opState) {
     if (opDefinition->parseAssembly(*this, opState))
       return failure();
+    // Verify that the parsed attributes does not have duplicate attributes.
+    // This can happen if an attribute set during parsing is also specified in
+    // the attribute dictionary in the assembly, or the attribute is set
+    // multiple during parsing.
+    Optional<NamedAttribute> duplicate = opState.attributes.findDuplicate();
+    if (duplicate)
+      return emitError(getNameLoc(), "attribute '")
+             << duplicate->first
+             << "' occurs more than once in the attribute list";
     return success();
   }
 
@@ -1471,10 +1480,13 @@ public:
   }
 
   /// Parse a list of assignments of the form
-  /// (%x1 = %y1 : type1, %x2 = %y2 : type2, ...).
-  /// The list must contain at least one entry
-  ParseResult parseAssignmentList(SmallVectorImpl<OperandType> &lhs,
-                                  SmallVectorImpl<OperandType> &rhs) override {
+  ///   (%x1 = %y1, %x2 = %y2, ...).
+  OptionalParseResult
+  parseOptionalAssignmentList(SmallVectorImpl<OperandType> &lhs,
+                              SmallVectorImpl<OperandType> &rhs) override {
+    if (failed(parseOptionalLParen()))
+      return llvm::None;
+
     auto parseElt = [&]() -> ParseResult {
       OperandType regionArg, operand;
       if (parseRegionArgument(regionArg) || parseEqual() ||
@@ -1484,8 +1496,6 @@ public:
       rhs.push_back(operand);
       return success();
     };
-    if (parseLParen())
-      return failure();
     return parser.parseCommaSeparatedListUntil(Token::r_paren, parseElt);
   }
 
