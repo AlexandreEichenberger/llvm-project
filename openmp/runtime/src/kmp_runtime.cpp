@@ -7070,6 +7070,12 @@ static void __kmp_do_serial_initialize(void) {
   ompd_init();
 #endif
 
+#if KMP_USE_POOL_PTHREAD
+  const char *ompEnvVar = "OMP_THREAD_LIMIT";
+  pool_pthread_create_all_workers(32, ompEnvVar);
+  pool_pthread_wait_until_fully_populated();
+#endif
+
   __kmp_validate_locks();
 
 #if ENABLE_LIBOMPTARGET

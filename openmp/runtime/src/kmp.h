@@ -595,7 +595,7 @@ typedef int PACKED_REDUCTION_METHOD_T;
 #if !KMP_OS_WASI
 #include <dlfcn.h>
 #endif
-#include <pthread.h>
+#include "kmp_pthread.h"
 #endif
 
 enum kmp_hw_t : int {

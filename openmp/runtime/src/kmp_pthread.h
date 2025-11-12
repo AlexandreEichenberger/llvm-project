@@ -1,0 +1,83 @@
+
+#ifndef KMP_PTHREAD_H
+#define KMP_PTHREAD_H 1
+
+#include <pthread.h>
+
+// Decide whether to use normal pthreads or pool_pthreads
+#define KMP_USE_POOL_PTHREAD 1
+
+#if KMP_USE_POOL_PTHREAD
+
+/////////////////////////////////////////////////////////////////////////////////
+// Redirection needed for pthread_* calls to pool_pthread_*
+/////////////////////////////////////////////////////////////////////////////////
+
+#define pthread_create(thread, attr, start_routine, arg)                       \
+  pool_pthread_create(thread, attr, start_routine, arg)
+#define pthread_self() pool_pthread_self()
+#define pthread_equal(t1, t2) pool_pthread_equal(t1, t2)
+#define pthread_detach(thread) pool_pthread_detach(thread)
+#define pthread_join(thread, value_ptr) pool_pthread_join(thread, value_ptr)
+#define pthread_exit(value_ptr) pool_pthread_exit(value_ptr)
+#define pthread_kill(thread, sig) pool_pthread_kill(thread, sig)
+#define pthread_cancel(thread) pool_pthread_cancel(thread)
+#define pthread_test_cancel() pool_pthread_test_cancel()
+#define pthread_setcancelstate(state, oldstate)                                \
+  pool_pthread_setcancelstate(state, oldstate)
+#define pthread_setcanceltype(type, oldtype)                                   \
+  pool_pthread_setcanceltype(type, oldtype)
+#define pthread_getschedparam(thread, policy, param)                           \
+  pool_pthread_getschedparam(thread, policy, param)
+#define pthread_setschedparam(thread, policy, param)                           \
+  pool_pthread_setschedparam(thread, int policy, param)
+
+/////////////////////////////////////////////////////////////////////////////////
+// Interface definition for pool_pthread_*
+/////////////////////////////////////////////////////////////////////////////////
+
+extern "C" {
+
+// Current thread becomes a worker thread in the thread pool after initializing
+// it. The maximum thread pool size is determined by the provided thread_limit
+// (when non-zero) and otherwise by the provided env_var, subject to
+// implementation limitations. When an env_var is provided, it will be set to
+// the maximum thread pool size.
+extern void pool_pthread_become_worker(int thread_limit, const char *env_var);
+// Initialize thread pool and fully populate the pool of worker threads. The
+// maximum thread pool size is determined by the provided thread_limit (when
+// non-zero) and otherwise by the provided env_var, subject to implementation
+// limitations. When an env_var is provided, it will be set to the maximum
+// thread pool size. Return the number of threads in the pool.
+extern int pool_pthread_create_all_workers(int thread_limit,
+                                           const char *env_var);
+// Wait until the thread pool is initialized and fully populated. Return the
+// number of threads in the pool.
+extern int pool_pthread_wait_until_fully_populated();
+
+// Pthread interface implemented (working),
+extern int pool_pthread_create(pthread_t *thread, const pthread_attr_t *attr,
+                               void *(*start_routine)(void *), void *arg);
+extern pthread_t pool_pthread_self();
+extern int pool_pthread_equal(pthread_t t1, pthread_t t2);
+extern int pool_pthread_detach(pthread_t thread);
+extern int pool_pthread_join(pthread_t thread, void **value_ptr);
+
+// Pthread interface not implemented (asserts).
+extern void pool_pthread_exit(void *value_ptr);
+extern int pool_pthread_kill(pthread_t thread, int sig);
+extern int pool_pthread_cancel(pthread_t thread);
+extern void pool_pthread_test_cancel();
+extern int pool_pthread_setcancelstate(int state, int *oldstate);
+extern int pool_pthread_setcanceltype(int type, int *oldtype);
+
+// Pthread interface pass-through (i.e. sent to normal pthread)
+int pool_pthread_getschedparam(pthread_t thread, int *policy,
+    struct sched_param *param);
+int pool_pthread_setschedparam(pthread_t thread, int policy,
+    const struct sched_param *param);
+}
+
+#endif // KMP_USE_POOL_PTHREAD
+
+#endif // KMP_PTHREAD_H
