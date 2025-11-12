@@ -71,12 +71,16 @@ extern void pool_pthread_test_cancel();
 extern int pool_pthread_setcancelstate(int state, int *oldstate);
 extern int pool_pthread_setcanceltype(int type, int *oldtype);
 
-// Pthread interface pass-through (i.e. sent to normal pthread)
+// Pthread interface pass-through (i.e. sent to normal pthread, providing the
+// actual pthread_t values of the underlying threads in the pool).
 extern int pool_pthread_getschedparam(pthread_t thread, int *policy,
-    struct sched_param *param);
+                                      struct sched_param *param);
 extern int pool_pthread_setschedparam(pthread_t thread, int policy,
-    const struct sched_param *param);
+                                      const struct sched_param *param);
 }
+#else
+
+// Use normal pthreads, nothing changed.
 
 #endif // KMP_USE_POOL_PTHREAD
 

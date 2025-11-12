@@ -16,6 +16,7 @@
 template <typename KEY, typename VALUE, int N, KEY EMPTY>
 struct SimpleMap {
   SimpleMap();
+  void clear();
   int64_t count(KEY key);
   void add(KEY key, VALUE value); // Assert when map is full.
   VALUE erase(KEY key); // Return erased value; assert if not found.

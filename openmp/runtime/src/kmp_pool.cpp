@@ -42,6 +42,11 @@ extern void *threadExitLoop(void *t) { return nullptr; };
 
 template <typename KEY, typename VALUE, int N, KEY EMPTY>
 SimpleMap<KEY, VALUE, N, EMPTY>::SimpleMap() {
+  clear();
+}
+
+template <typename KEY, typename VALUE, int N, KEY EMPTY>
+void SimpleMap<KEY, VALUE, N, EMPTY>::clear() {
   for (int64_t k = 0; k < N; ++k)
     keys[k] = EMPTY;
 }
@@ -89,11 +94,18 @@ VALUE SimpleMap<KEY, VALUE, N, EMPTY>::get(KEY key) {
 ///////////////////////////////////////////////////////////////////////////////
 
 void WorkerThreadInfo::init(int64_t gTid) {
-  assert(globalTid == GLOBAL_TID_UNDEF &&
-         "worker thread info can be init only once");
+  assert(gTid >= 0ll && "expected nonnegative global thread id");
   globalTid = gTid;
   uniqueTidSeed = gTid;
-  assert(gTid >= 0ll && "expected nonnegative global thread id");
+  routine = nullptr;
+  parameter = nullptr;
+  detached = false;
+  pthread_mutex_init(&mutexForJoin, nullptr);
+  pthread_cond_init(&conditionForJoin, nullptr);
+  pthread_mutex_init(&mutexForWorkerLoop, nullptr);
+  pthread_cond_init(&conditionForWorkerLoop, nullptr);
+  uniqueTidToRoutineReturnValueMap.clear();
+  thread = (pthread_t)0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -345,7 +357,6 @@ WorkerThreadRoutineType WorkerThreadInfo::getRoutine() { return routine; }
 
 // Constructor.
 void ThreadPool::init(int64_t n) {
-  assert(maxPoolSize == 0 && "can only be initialized once");
   maxPoolSize = n < MAX_POOL_SIZE ? n : MAX_POOL_SIZE;
   assert(maxPoolSize > 0 && "assumed at least one thread for a given pool");
   // Init pool info with its global id.
