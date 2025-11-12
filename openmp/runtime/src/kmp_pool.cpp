@@ -641,7 +641,7 @@ extern "C" int pool_pthread_create_all_workers(int thread_limit,
   return thread_limit;
 }
 
-extern int pool_pthread_wait_until_fully_populated() {
+extern "C" int pool_pthread_wait_until_fully_populated() {
   // At this time, use busy waiting.
   while (threadPool /* is initialized */ &&
          threadPool->getThreadPoolSize() < threadPool->getMaxThreadPoolSize()) {

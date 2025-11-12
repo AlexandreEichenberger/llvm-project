@@ -7050,13 +7050,13 @@ static void __kmp_user_level_mwait_init() {
 }
 #endif /* KMP_HAVE_UMWAIT */
 
-#if KMP_USE_POOL_PTHREAD
-extern "C" int pool_pthread_create_all_workers(int thread_limit,
-                                           const char *env_var);
-extern "C" int pool_pthread_wait_until_fully_populated();
-#else
-#error "just kidding"
-#endif
+//#if KMP_USE_POOL_PTHREAD
+//extern "C" int pool_pthread_create_all_workers(int thread_limit,
+//                                           const char *env_var);
+//extern "C" int pool_pthread_wait_until_fully_populated();
+//#else
+//#error "just kidding"
+//#endif
 
 static void __kmp_do_serial_initialize(void) {
   int i, gtid;
