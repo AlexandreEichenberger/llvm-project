@@ -199,7 +199,11 @@ void WorkerThreadInfo::signalForJoinAndResetRoutine(ThreadPool *threadPool,
   assert(uniqueTidToRoutineReturnValueMap.count(key) == 0 &&
          "expected no entries");
   if (!isDetached()) {
+#if USE_SIMPLE_MAP
+    uniqueTidToRoutineReturnValueMap.add(key, value);
+#else
     uniqueTidToRoutineReturnValueMap[key] = value;
+#endif
     DP(3, printf("  %llu %lld map: %llu -> %llu\n",
                  (unsigned long long)uniqueTid, (long long)globalTid,
                  (unsigned long long)key, (unsigned long long)value));
@@ -264,8 +268,12 @@ bool WorkerThreadInfo::waitInJoin(WorkerThreadPthreadType joiningUTid,
   bool hasValue = (count > 0);
   if (hasValue) {
     assert(count == 1 && "expected one entry only");
+#if USE_SIMPLE_MAP
+    uint64_t value = uniqueTidToRoutineReturnValueMap.erase(key);
+#else
     uint64_t value = uniqueTidToRoutineReturnValueMap[key];
     uniqueTidToRoutineReturnValueMap.erase(key);
+#endif
     DP(3, printf("  %llu %lld unmap: %llu -> %llu\n",
                  (unsigned long long)joiningUTid, (long long)globalTid,
                  (unsigned long long)key, (unsigned long long)value));
@@ -705,14 +713,14 @@ extern "C" int pool_pthread_setcanceltype(int type, int *oldtype) {
 
 // Pass through
 extern "C" int pool_pthread_getschedparam(pthread_t thread, int *policy,
-                               struct sched_param *param) {
+                                          struct sched_param *param) {
   assert(threadPool && "uninitialized thread pool");
   pthread_t underlyingThread = threadPool->getUnderlyingPthread(thread);
   return pthread_getschedparam(underlyingThread, policy, param);
 }
 
 extern "C" int pool_pthread_setschedparam(pthread_t thread, int policy,
-                               const struct sched_param *param) {
+                                          const struct sched_param *param) {
   assert(threadPool && "uninitialized thread pool");
   pthread_t underlyingThread = threadPool->getUnderlyingPthread(thread);
   return pthread_setschedparam(underlyingThread, policy, param);

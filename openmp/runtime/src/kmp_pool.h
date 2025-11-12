@@ -5,6 +5,56 @@
 #include <functional>
 #include <pthread.h>
 #include <stdint.h>
+#include <cassert>
+
+/////////////////////////////////////////////////////////////////////////////////
+// Simple Map.
+/////////////////////////////////////////////////////////////////////////////////
+
+#define USE_SIMPLE_MAP 1
+#if USE_SIMPLE_MAP
+template <typename KEY, typename VALUE, int N, KEY emptyValue>
+struct SimpleMap {
+  SimpleMap() {
+    for (int64_t k = 0; k < N; ++k)
+      keys[k] = emptyValue;
+  }
+  int64_t count(KEY key) {
+    int64_t n = 0;
+    for (int64_t k = 0; k < N; ++k)
+      if (keys[k] == key)
+        ++n;
+    return n;
+  }
+  void add(KEY key, VALUE value) {
+    for (int64_t k = 0; k < N; ++k)
+      if (keys[k] == emptyValue) {
+        keys[k] = key;
+        values[k] = value;
+        return;
+      }
+    assert(false && "simple map is too small");
+  }
+  VALUE erase(KEY key) {
+    for (int64_t k = 0; k < N; ++k)
+      if (keys[k] == key) {
+        keys[k] = emptyValue;
+        return values[k];
+      }
+    assert(false && "did not find key to remove");
+  }
+  VALUE get(KEY key) {
+    for (int64_t k = 0; k < N; ++k)
+      if (keys[k] == key)
+        return values[k];
+    assert(false && "did not find key to remove");
+  }
+
+private:
+  KEY keys[N];
+  VALUE values[N];
+};
+#endif
 
 /////////////////////////////////////////////////////////////////////////////////
 // Global types.
@@ -143,8 +193,12 @@ private:
   // Synchronization for pthread_create / worker loop
   pthread_mutex_t mutexForWorkerLoop = PTHREAD_MUTEX_INITIALIZER;
   pthread_cond_t conditionForWorkerLoop = PTHREAD_COND_INITIALIZER;
-  std::unordered_map<unsigned long long, unsigned long long>
+#if USE_SIMPLE_MAP
+  SimpleMap<uint64_t, uint64_t, MAX_POOL_SIZE, 0>
       uniqueTidToRoutineReturnValueMap;
+#else
+  std::unordered_map<uint64_t, uint64_t> uniqueTidToRoutineReturnValueMap;
+#endif
 
   // Pthread_t value of this actual thread (standard pthread_self value)
   pthread_t thread = (pthread_t)0;
