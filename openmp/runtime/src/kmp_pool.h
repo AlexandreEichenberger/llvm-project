@@ -146,7 +146,7 @@ private:
       uniqueTidToRoutineReturnValueMap;
 
   // Pthread_t value of this actual thread (standard pthread_self value)
-  pthread_t thread = nullptr;
+  pthread_t thread = (pthread_t)0;
 };
 
 /////////////////////////////////////////////////////////////////////////////////

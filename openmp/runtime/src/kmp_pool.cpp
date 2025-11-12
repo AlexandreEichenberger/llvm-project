@@ -91,7 +91,7 @@ WorkerThreadInfo::setRoutine(WorkerThreadRoutineType newRoutine,
   assert(isIdle() && "Expected idle thread when setting a new routine");
   assert(newRoutine && "expected a new routine");
   WorkerThreadPthreadType newUniqueTid = getNextUniqueTid();
-  DP(2, printf("  %llu %lld setRoutine: Fct 0x%llx\n", newUniqueTid, globalTid,
+  DP(2, printf("  %lu %ld setRoutine: Fct 0x%llx\n", newUniqueTid, globalTid,
                (unsigned long long)newRoutine));
   routine = newRoutine;
   parameter = newParameter;
@@ -112,7 +112,7 @@ void *WorkerThreadInfo::callRoutine() {
 
 // Reset the work descriptor to indicate that this thread is idle.
 void WorkerThreadInfo::resetRoutine() {
-  DP(2, printf("  %llu %lld resetRoutine: Fct 0x%llx\n", uniqueTid, globalTid,
+  DP(2, printf("  %lu %ld resetRoutine: Fct 0x%llx\n", uniqueTid, globalTid,
                (unsigned long long)routine));
   routine = nullptr; // Not really needed; used to check nonull is asserts.
   threadSpecificUniqueTid = UNIQUE_TID_UNDEF;
@@ -138,12 +138,12 @@ void WorkerThreadInfo::setTerminated() {
 bool WorkerThreadInfo::isDetached() { return detached; }
 
 pthread_t WorkerThreadInfo::getPthread() {
-  assert(thread != nullptr && "uninitialized WorkerThreadInfo");
+  assert(thread != (pthread_t)0 && "uninitialized WorkerThreadInfo");
   return thread;
 }
 
 void WorkerThreadInfo::setPthread(pthread_t newThread) {
-  assert(newThread != nullptr && "uninitialized WorkerThreadInfo");
+  assert(newThread != (pthread_t)0 && "uninitialized WorkerThreadInfo");
   thread = newThread;
 }
 
@@ -195,8 +195,8 @@ void WorkerThreadInfo::signalForJoinAndResetRoutine(ThreadPool *threadPool,
          "expected no entries");
   if (!isDetached()) {
     uniqueTidToRoutineReturnValueMap[key] = value;
-    DP(3, printf("  %llu %lld map: %llu -> %llu\n", uniqueTid, globalTid, key,
-                 value));
+    DP(3,
+       printf("  %lu %ld map: %lu -> %lu\n", uniqueTid, globalTid, key, value));
   }
   // Reset the thread worker info to indicate that that thread is now
   // available to new tasks. Must be done here as otherwise a joining thread
@@ -223,11 +223,11 @@ int WorkerThreadInfo::setDetached(WorkerThreadPthreadType detachingUTid) {
   int rc = pthread_mutex_lock(&mutexForJoin);
   assert(!rc && "failed to acquire join lock");
   if (detachingUTid == uniqueTid) {
-    DP(3, printf("  %llu %lld setDetached: success\n", uniqueTid, globalTid));
+    DP(3, printf("  %lu %ld setDetached: success\n", uniqueTid, globalTid));
     detached = true;
     failureCode = 0;
   } else {
-    DP(3, printf("  %llu %lld setDetached: failure, now processing %llu\n",
+    DP(3, printf("  %lu %ld setDetached: failure, now processing %lu\n",
                  detachingUTid, globalTid, uniqueTid));
     detached = true;
     failureCode = 1;
@@ -258,8 +258,8 @@ bool WorkerThreadInfo::waitInJoin(WorkerThreadPthreadType joiningUTid,
     assert(count == 1 && "expected one entry only");
     uint64_t value = uniqueTidToRoutineReturnValueMap[key];
     uniqueTidToRoutineReturnValueMap.erase(key);
-    DP(3, printf("  %llu %lld unmap: %llu -> %llu\n", joiningUTid, globalTid,
-                 key, value));
+    DP(3, printf("  %lu %ld unmap: %lu -> %lu\n", joiningUTid, globalTid, key,
+                 value));
     *value_ptr = (void *)value;
   }
   rc = pthread_mutex_unlock(&mutexForJoin);
@@ -284,7 +284,7 @@ WorkerThreadRoutineType WorkerThreadInfo::getRoutine() { return routine; }
 
 // Constructor.
 ThreadPool::ThreadPool(int64_t n) {
-  maxPoolSize = std::min(n, MAX_POOL_SIZE);
+  maxPoolSize = n < MAX_POOL_SIZE ? n : MAX_POOL_SIZE;
   assert(maxPoolSize > 0 && "assumed at least one thread for a given pool");
   // Init pool info with its global id.
   for (int64_t gTid = 0ll; gTid < maxPoolSize; ++gTid)
@@ -305,7 +305,7 @@ int ThreadPool::enterThreadPool() {
   // Get the thread's global thread id and grow the pool size.
   int64_t gTid = poolSize.fetch_add(1ll);
   if (gTid >= maxPoolSize) {
-    DP(1, printf("  0 %lld enterThreadPool: Thread pool is full.\n", gTid));
+    DP(1, printf("  0 %ld enterThreadPool: Thread pool is full.\n", gTid));
     return EAGAIN;
   }
   assert(gTid >= 0 && "expected positive global thread id");
@@ -315,7 +315,7 @@ int ThreadPool::enterThreadPool() {
   memoryFence();
   incrementNumberOfAvailableThreads();
   // Start waiting for tasks to be executed.
-  DP(3, printf("  %lld enterThreadPool: start work loop\n", gTid));
+  DP(3, printf("  %ld enterThreadPool: start work loop\n", gTid));
   while (true) {
     threadInfo->waitInWorkerLoop();
     if (!threadInfo->isIdle()) {
@@ -326,7 +326,7 @@ int ThreadPool::enterThreadPool() {
       callRoutineAndCleanup(threadInfo);
     }
   }
-  DP(2, printf("  0 %lld WorkerLoop: Stopping loop.\n", gTid));
+  DP(2, printf("  0 %ld WorkerLoop: Stopping loop.\n", gTid));
   threadInfo->resetRoutine();
   // Success.
   return 0;
@@ -358,8 +358,8 @@ int ThreadPool::pthread_create(pthread_t *thread, const pthread_attr_t *attr,
         // First set the work descriptor associated with call.
         WorkerThreadPthreadType uTid =
             pool[gTid].setRoutine(start_routine, arg, detached);
-        DP(3, printf("  %llu %lld pthread_create: Set fct %llx (%d iter)\n",
-                     uTid, gTid, (long long int)start_routine, (int)attempt));
+        DP(3, printf("  %lu %ld pthread_create: Set fct %llx (%d iter)\n", uTid,
+                     gTid, (long long int)start_routine, (int)attempt));
         // Then return the new uniqueTid as the pthread value. Ensure
         // that the routine fields are seen before thread.
         memoryFence();
@@ -370,8 +370,8 @@ int ThreadPool::pthread_create(pthread_t *thread, const pthread_attr_t *attr,
     }
   }
   // Failed to find any available free threads.
-  DP(1, printf("  pthread_create: No threads available (%lld try, avail "
-               "%lld out of %lld pool threads).\n",
+  DP(1, printf("  pthread_create: No threads available (%ld try, avail "
+               "%ld out of %ld pool threads).\n",
                attempt, getNumberOfAvailableThreads(), poolSize.load()));
   *thread = (pthread_t)UNIQUE_TID_UNDEF; // Not necessary, just to keep tidy.
   return EAGAIN;
@@ -395,15 +395,15 @@ int ThreadPool::pthread_detach(pthread_t thread) {
   int64_t gTid = WorkerThreadInfo::getGlobalTid(uTid);
   if (!validGlobalTid(gTid)) {
     // Corrupted thread parameter., could not find the corresponding info.
-    DP(1, printf("  %llu %lld pthread_detach: Could not find thread\n", uTid,
-                 gTid));
+    DP(1,
+       printf("  %lu %ld pthread_detach: Could not find thread\n", uTid, gTid));
     return ESRCH;
   }
   WorkerThreadInfo *threadInfo = &pool[gTid];
   int rc = threadInfo->setDetached(uTid);
   if (rc) {
     // Detach for a thread that completed just after we detached.
-    DP(1, printf("  %llu %lld pthread_detach: Thread competed already.\n", uTid,
+    DP(1, printf("  %lu %ld pthread_detach: Thread competed already.\n", uTid,
                  gTid));
     return ESRCH;
   }
@@ -419,29 +419,28 @@ int ThreadPool::pthread_join(pthread_t thread, void **value_ptr) {
   if (!validGlobalTid(gTid)) {
     // Corrupted thread parameter., could not find the corresponding info.
     DP(1,
-       printf("  %llu %lld pthread_join: Could not find thread\n", uTid, gTid));
+       printf("  %lu %ld pthread_join: Could not find thread\n", uTid, gTid));
     return ESRCH;
   }
   if (uTid == threadSpecificUniqueTid) {
     // A deadlock was detected or the value of thread specifies the calling
     // thread.
-    DP(1,
-       printf("  %llu %lld pthread_join: Calling join on self\n", uTid, gTid));
+    DP(1, printf("  %lu %ld pthread_join: Calling join on self\n", uTid, gTid));
     return EDEADLK;
   }
 
   // Wait for the worker thread to complete the task.
-  DP(3, printf("  %llu %lld pthread_join: joining with pthread_t %llu\n", uTid,
+  DP(3, printf("  %lu %ld pthread_join: joining with pthread_t %lu\n", uTid,
                gTid, uTid));
   bool hasValue = pool[gTid].waitInJoin(uTid, value_ptr);
   if (!hasValue) {
     // Thread completed the work but did not leave a value_ptr, thus signaling
     // that this was not a joinable thread. Or that the thread was already
     // joined once and thus the map entry was already removed.
-    DP(1, printf("  %llu %lld pthread_join: No return value\n", uTid, gTid));
+    DP(1, printf("  %lu %ld pthread_join: No return value\n", uTid, gTid));
     return EINVAL;
   }
-  DP(3, printf("  %llu %lld pthread_join: joined with pthread_t %lld\n", uTid,
+  DP(3, printf("  %lu %ld pthread_join: joined with pthread_t %ld\n", uTid,
                gTid, uTid));
   // Success.
   return 0;
@@ -458,12 +457,12 @@ int64_t ThreadPool::getMaxThreadPoolSize() { return maxPoolSize; }
 // Method used by the worker loop to indicate the completion of a routine.
 void ThreadPool::callRoutineAndCleanup(WorkerThreadInfo *threadInfo) {
   // Call routine.
-  DP(3, printf("  %llu %lld call&cleanup: Call 0x%llx with pthread %llu\n",
+  DP(3, printf("  %lu %ld call&cleanup: Call 0x%llx with pthread %lu\n",
                threadInfo->getUniqueThreadId(), threadInfo->getGlobalThreadId(),
                (unsigned long long)threadInfo->getRoutine(),
                threadInfo->getUniqueThreadId()));
   void *value_ptr = threadInfo->callRoutine();
-  DP(3, printf("  %llu %lld call&cleanup: Return 0x%llx with value %lld\n",
+  DP(3, printf("  %lu %ld call&cleanup: Return 0x%llx with value %ld\n",
                threadInfo->getUniqueThreadId(), threadInfo->getGlobalThreadId(),
                (unsigned long long)threadInfo->getRoutine(),
                (long long)value_ptr));
