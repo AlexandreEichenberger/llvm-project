@@ -44,8 +44,11 @@ extern void *threadExitLoop(void *t) { return nullptr; };
 // WorkerThreadInfo methods
 ///////////////////////////////////////////////////////////////////////////////
 
-WorkerThreadInfo::WorkerThreadInfo(int64_t gTid)
-    : globalTid(gTid), uniqueTidSeed(gTid) {
+void WorkerThreadInfo::init(int64_t gTid) {
+  assert(globalTid == GLOBAL_TID_UNDEF &&
+         "worker thread info can be init only once");
+  globalTid = gTid;
+  uniqueTidSeed = gTid;
   assert(gTid >= 0ll && "expected nonnegative global thread id");
 }
 
@@ -289,12 +292,13 @@ WorkerThreadRoutineType WorkerThreadInfo::getRoutine() { return routine; }
 // Methods to construct and register threads into the pool.
 
 // Constructor.
-ThreadPool::ThreadPool(int64_t n) {
+void ThreadPool::init(int64_t n) {
+  assert(maxPoolSize == 0 && "can only be initialized once");
   maxPoolSize = n < MAX_POOL_SIZE ? n : MAX_POOL_SIZE;
   assert(maxPoolSize > 0 && "assumed at least one thread for a given pool");
   // Init pool info with its global id.
   for (int64_t gTid = 0ll; gTid < maxPoolSize; ++gTid)
-    pool[gTid] = WorkerThreadInfo(gTid);
+    pool[gTid].init(gTid);
   poolSize.store(0ll);
   threadBusyStatus.store(0ull);
   availableThreadNum.store(0ll);
@@ -322,8 +326,7 @@ int ThreadPool::enterThreadPool() {
   memoryFence();
   incrementNumberOfAvailableThreads();
   // Start waiting for tasks to be executed.
-  DP(3,
-     printf("  %lld enterThreadPool: start work loop\n", (long long)gTid));
+  DP(3, printf("  %lld enterThreadPool: start work loop\n", (long long)gTid));
   while (true) {
     threadInfo->waitInWorkerLoop();
     if (!threadInfo->isIdle()) {
@@ -381,8 +384,7 @@ int ThreadPool::pthread_create(pthread_t *thread, const pthread_attr_t *attr,
   // Failed to find any available free threads.
   DP(1, printf("  pthread_create: No threads available (%lld try, avail "
                "%lld out of %lld pool threads).\n",
-               (long long)attempt,
-               (long long)getNumberOfAvailableThreads(),
+               (long long)attempt, (long long)getNumberOfAvailableThreads(),
                (long long)poolSize.load()));
   *thread = (pthread_t)UNIQUE_TID_UNDEF; // Not necessary, just to keep tidy.
   return EAGAIN;

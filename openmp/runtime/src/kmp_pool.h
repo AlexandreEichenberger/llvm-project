@@ -32,7 +32,8 @@ struct ThreadPool;
 
 struct WorkerThreadInfo {
   WorkerThreadInfo() = default;
-  WorkerThreadInfo(int64_t gTid);
+  WorkerThreadInfo(int64_t gTid) { init(gTid); };
+  void init(int64_t gTid);
 
   // Global thread id for this specific instance.
   int64_t getGlobalThreadId();
@@ -154,7 +155,9 @@ private:
 /////////////////////////////////////////////////////////////////////////////////
 
 struct ThreadPool {
-  ThreadPool(int64_t n = MAX_POOL_SIZE);
+  ThreadPool(int64_t n = MAX_POOL_SIZE) { init(n); }
+  void init(int64_t);
+
   // Registering a thread into the pool, get current pool size.
   int enterThreadPool();
   int64_t getThreadPoolSize();
