@@ -72,9 +72,9 @@ extern int pool_pthread_setcancelstate(int state, int *oldstate);
 extern int pool_pthread_setcanceltype(int type, int *oldtype);
 
 // Pthread interface pass-through (i.e. sent to normal pthread)
-int pool_pthread_getschedparam(pthread_t thread, int *policy,
+extern int pool_pthread_getschedparam(pthread_t thread, int *policy,
     struct sched_param *param);
-int pool_pthread_setschedparam(pthread_t thread, int policy,
+extern int pool_pthread_setschedparam(pthread_t thread, int policy,
     const struct sched_param *param);
 }
 

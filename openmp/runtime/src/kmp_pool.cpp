@@ -692,7 +692,7 @@ extern "C" int pool_pthread_cancel(pthread_t thread) {
   assert(false && "pthread_cancel is not implemented");
 }
 
-extern void pool_pthread_test_cancel() {
+extern "C" void pool_pthread_test_cancel() {
   assert(false && "pthread_test_cancel is not implemented");
 }
 
@@ -704,14 +704,14 @@ extern "C" int pool_pthread_setcanceltype(int type, int *oldtype) {
 }
 
 // Pass through
-int pool_pthread_getschedparam(pthread_t thread, int *policy,
+extern "C" int pool_pthread_getschedparam(pthread_t thread, int *policy,
                                struct sched_param *param) {
   assert(threadPool && "uninitialized thread pool");
   pthread_t underlyingThread = threadPool->getUnderlyingPthread(thread);
   return pthread_getschedparam(underlyingThread, policy, param);
 }
 
-int pool_pthread_setschedparam(pthread_t thread, int policy,
+extern "C" int pool_pthread_setschedparam(pthread_t thread, int policy,
                                const struct sched_param *param) {
   assert(threadPool && "uninitialized thread pool");
   pthread_t underlyingThread = threadPool->getUnderlyingPthread(thread);
