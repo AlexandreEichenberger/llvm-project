@@ -5,7 +5,6 @@
 #include <functional>
 #include <pthread.h>
 #include <stdint.h>
-#include <cassert>
 
 /////////////////////////////////////////////////////////////////////////////////
 // Simple Map.
@@ -13,43 +12,14 @@
 
 #define USE_SIMPLE_MAP 1
 #if USE_SIMPLE_MAP
-template <typename KEY, typename VALUE, int N, KEY emptyValue>
+// Because of linking errors with unordered map, implemented a simple one here.
+template <typename KEY, typename VALUE, int N, KEY EMPTY>
 struct SimpleMap {
-  SimpleMap() {
-    for (int64_t k = 0; k < N; ++k)
-      keys[k] = emptyValue;
-  }
-  int64_t count(KEY key) {
-    int64_t n = 0;
-    for (int64_t k = 0; k < N; ++k)
-      if (keys[k] == key)
-        ++n;
-    return n;
-  }
-  void add(KEY key, VALUE value) {
-    for (int64_t k = 0; k < N; ++k)
-      if (keys[k] == emptyValue) {
-        keys[k] = key;
-        values[k] = value;
-        return;
-      }
-    assert(false && "simple map is too small");
-  }
-  VALUE erase(KEY key) {
-    for (int64_t k = 0; k < N; ++k)
-      if (keys[k] == key) {
-        keys[k] = emptyValue;
-        return values[k];
-      }
-    assert(false && "did not find key to remove");
-  }
-  VALUE get(KEY key) {
-    for (int64_t k = 0; k < N; ++k)
-      if (keys[k] == key)
-        return values[k];
-    assert(false && "did not find key to remove");
-  }
-
+  SimpleMap();
+  int64_t count(KEY key);
+  void add(KEY key, VALUE value); // Assert when map is full.
+  VALUE erase(KEY key); // Return erased value; assert if not found.
+  VALUE get(KEY key); // Assert if not found.
 private:
   KEY keys[N];
   VALUE values[N];

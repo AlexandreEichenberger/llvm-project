@@ -40,6 +40,50 @@ extern void *threadExitLoop(void *t) { return nullptr; };
 
 #define memoryFence() std::atomic_thread_fence(std::memory_order_seq_cst)
 
+template <typename KEY, typename VALUE, int N, KEY EMPTY>
+SimpleMap<KEY, VALUE, N, EMPTY>::SimpleMap() {
+  for (int64_t k = 0; k < N; ++k)
+    keys[k] = EMPTY;
+}
+
+template <typename KEY, typename VALUE, int N, KEY EMPTY>
+int64_t SimpleMap<KEY, VALUE, N, EMPTY>::count(KEY key) {
+  int64_t n = 0;
+  for (int64_t k = 0; k < N; ++k)
+    if (keys[k] == key)
+      ++n;
+  return n;
+}
+
+template <typename KEY, typename VALUE, int N, KEY EMPTY>
+void SimpleMap<KEY, VALUE, N, EMPTY>::add(KEY key, VALUE value) {
+  for (int64_t k = 0; k < N; ++k)
+    if (keys[k] == EMPTY) {
+      keys[k] = key;
+      values[k] = value;
+      return;
+    }
+  assert(false && "simple map is too small");
+}
+
+template <typename KEY, typename VALUE, int N, KEY EMPTY>
+VALUE SimpleMap<KEY, VALUE, N, EMPTY>::erase(KEY key) {
+  for (int64_t k = 0; k < N; ++k)
+    if (keys[k] == key) {
+      keys[k] = EMPTY;
+      return values[k];
+    }
+  assert(false && "did not find key to remove");
+}
+
+template <typename KEY, typename VALUE, int N, KEY EMPTY>
+VALUE SimpleMap<KEY, VALUE, N, EMPTY>::get(KEY key) {
+  for (int64_t k = 0; k < N; ++k)
+    if (keys[k] == key)
+      return values[k];
+  assert(false && "did not find key to remove");
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // WorkerThreadInfo methods
 ///////////////////////////////////////////////////////////////////////////////
