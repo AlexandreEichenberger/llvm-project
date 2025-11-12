@@ -597,7 +597,8 @@ bool init(int threadLimit, const char *envVar) {
   if (!threadPool) {
     // Still not initialized, now initialize inside the lock.
     getThreadLimit(threadLimit, envVar);
-    threadPool = new ThreadPool(threadLimit);
+    threadPool = (ThreadPool *)malloc(sizeof(ThreadPool));
+    threadPool->init(threadLimit);
     assert(threadPool && "failed to allocate thread pool");
     int actualLimit = threadPool->getMaxThreadPoolSize();
     if (envVar && threadLimit != actualLimit)
