@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #if USE_SIMPLE_MAP == 0
 #include <unordered_map>
