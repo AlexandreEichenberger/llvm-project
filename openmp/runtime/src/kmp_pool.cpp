@@ -771,17 +771,6 @@ extern "C" int pool_pthread_cancel(pthread_t thread) {
   assert(false && "pthread_cancel is not implemented");
 }
 
-extern "C" void pool_pthread_test_cancel() {
-  assert(false && "pthread_test_cancel is not implemented");
-}
-
-extern "C" int pool_pthread_setcancelstate(int state, int *oldstate) {
-  assert(false && "pthread_setcancelstate is not implemented");
-}
-extern "C" int pool_pthread_setcanceltype(int type, int *oldtype) {
-  assert(false && "pthread_setcanceltype is not implemented");
-}
-
 // Pass through
 extern "C" int pool_pthread_getschedparam(pthread_t thread, int *policy,
                                           struct sched_param *param) {

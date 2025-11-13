@@ -13,20 +13,18 @@
 // Redirection needed for pthread_* calls to pool_pthread_*
 /////////////////////////////////////////////////////////////////////////////////
 
+// Implemented.
 #define pthread_create(thread, attr, start_routine, arg)                       \
   pool_pthread_create(thread, attr, start_routine, arg)
 #define pthread_self() pool_pthread_self()
 #define pthread_equal(t1, t2) pool_pthread_equal(t1, t2)
 #define pthread_detach(thread) pool_pthread_detach(thread)
 #define pthread_join(thread, value_ptr) pool_pthread_join(thread, value_ptr)
+// Not implemented, assert if called.
 #define pthread_exit(value_ptr) pool_pthread_exit(value_ptr)
 #define pthread_kill(thread, sig) pool_pthread_kill(thread, sig)
 #define pthread_cancel(thread) pool_pthread_cancel(thread)
-#define pthread_test_cancel() pool_pthread_test_cancel()
-#define pthread_setcancelstate(state, oldstate)                                \
-  pool_pthread_setcancelstate(state, oldstate)
-#define pthread_setcanceltype(type, oldtype)                                   \
-  pool_pthread_setcanceltype(type, oldtype)
+// Pass through to original pthreads.
 #define pthread_getschedparam(thread, policy, param)                           \
   pool_pthread_getschedparam(thread, policy, param)
 #define pthread_setschedparam(thread, policy, param)                           \
@@ -67,9 +65,6 @@ extern int pool_pthread_join(pthread_t thread, void **value_ptr);
 extern void pool_pthread_exit(void *value_ptr);
 extern int pool_pthread_kill(pthread_t thread, int sig);
 extern int pool_pthread_cancel(pthread_t thread);
-extern void pool_pthread_test_cancel();
-extern int pool_pthread_setcancelstate(int state, int *oldstate);
-extern int pool_pthread_setcanceltype(int type, int *oldtype);
 
 // Pthread interface pass-through (i.e. sent to normal pthread, providing the
 // actual pthread_t values of the underlying threads in the pool).
