@@ -1,12 +1,16 @@
 #include <atomic>
 #include <cassert>
-#include <chrono>
 #include <functional>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <thread>
+//#include <thread>
+#if !KMP_OS_WASI
+#include <signal.h>
+#endif
+
+
 #if USE_SIMPLE_MAP == 0
 #include <unordered_map>
 #endif
