@@ -755,6 +755,12 @@ extern "C" int pool_pthread_wait_until_fully_populated() {
 
 // Fully implemented.
 
+extern "C" pthread_t getNativeThreadButAssertIfPoolThread(pthread_t thread) {
+  assert(!WorkerThreadInfo::isPoolThread(thread) &&
+         "cannot handle pool thread call");
+  return thread;
+}
+
 extern "C" pthread_t getPoolNativeThread(pthread_t thread) {
   if (!WorkerThreadInfo::isPoolThread(thread))
     return thread; // Have native thread, "thread" is native.
@@ -811,15 +817,6 @@ extern "C" void pool_pthread_exit(void *value_ptr) {
     pthread_exit(value_ptr);
   }
   assert(false && "pool pthread_exit is not implemented");
-}
-
-// Signature is not define in all cases; just define it here.
-extern int pthread_kill(pthread_t thread, int sig);
-
-extern "C" int pool_pthread_kill(pthread_t thread, int sig) {
-  if (!WorkerThreadInfo::isPoolThread(thread))
-    return pthread_kill(thread, sig);
-  assert(false && "pool pthread_kill is not implemented");
 }
 
 extern "C" int pool_pthread_cancel(pthread_t thread) {

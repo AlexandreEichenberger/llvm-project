@@ -9,6 +9,18 @@
 
 #if KMP_USE_POOL_PTHREAD
 
+// There are non-posix pthread calls that are not guaranteed to be define
+// everywhere. We thus have to handle them with macros only.
+
+extern "C" pthread_t getNativeThreadButAssertIfPoolThread(pthread_t thread);
+extern "C" pthread_t getPoolNativeThread(pthread_t thread);
+
+#define __pool_fallthrough(fct, thread, ...)                                   \
+  fct(getPoolNativeThread(thread), __VA_ARGS__)
+
+#define _pool_unimplemented(fct, thread, ...)                                  \
+  fct(getNativeThreadButAssertIfPoolThread(thread), __VA_ARGS__)
+
 /////////////////////////////////////////////////////////////////////////////////
 // Redirection needed for pthread_* calls to pool_pthread_*
 /////////////////////////////////////////////////////////////////////////////////
@@ -22,26 +34,15 @@
 #define pthread_join(thread, value_ptr) pool_pthread_join(thread, value_ptr)
 // Not implemented, assert if called.
 #define pthread_exit(value_ptr) pool_pthread_exit(value_ptr)
-#define pthread_kill(thread, sig) pool_pthread_kill(thread, sig)
+#define pthread_kill(thread, sig) _pool_unimplemented(pthread_kill, thread, sig)
 #define pthread_cancel(thread) pool_pthread_cancel(thread)
 // Pass through to original pthreads.
 #define pthread_getschedparam(thread, policy, param)                           \
   pool_pthread_getschedparam(thread, policy, param)
 #define pthread_setschedparam(thread, policy, param)                           \
   pool_pthread_setschedparam(thread, int policy, param)
-
-// There are non-posix calls that are not guaranteed to be define everywhere; we
-// want the fall through, and have to do it via #defs because we cannot generate
-// calls to them.
-
-extern "C" pthread_t getPoolNativeThread(pthread_t thread);
-
-#define __pool_fallthrough(fct, thread, ...)                                   \
-  fct(getPoolNativeThread(thread), __VA_ARGS__)
-
 #define pthread_getattr_np(thread, attr)                                       \
   __pool_fallthrough(pthread_getattr_np, thread, attr)
-
 #define pthread_attr_get_np(thread, attr)                                      \
   __pool_fallthrough(pthread_attr_get_np, thread, attr)
 
