@@ -34,12 +34,10 @@
 // want the fall through, and have to do it via #defs because we cannot generate
 // calls to them.
 
-extern "C" bool isPoolThread(pthread_t thread);
+extern "C" pthread_t getPoolNativeThread(pthread_t thread);
 
 #define __pool_fallthrough(fct, thread, ...)                                   \
-  (isPoolThread(thread)                                                        \
-       ? fct(threadPool->getNativeThread(thread), __VA_ARGS__)                 \
-       : fct(thread, __VA_ARGS__))
+  fct(getPoolNativeThread(thread), __VA_ARGS__)
 
 #define pthread_getattr_np(thread, attr)                                       \
   __pool_fallthrough(pthread_getattr_np, thread, attr)

@@ -5,9 +5,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#if !KMP_OS_WASI
-#include <signal.h>
-#endif
 
 #if USE_SIMPLE_MAP == 0
 #include <unordered_map>
@@ -757,9 +754,11 @@ extern "C" int pool_pthread_wait_until_fully_populated() {
 
 // Fully implemented.
 
-extern "C" bool isPoolThread(pthread_t thread) {
+extern "C" pthread_t getPoolNativeThread(pthread_t thread) {
+  if (!WorkerThreadInfo::isPoolThread(thread))
+    return thread; // Have native thread, "thread" is native.
   assert(threadPool && "uninitialized thread pool");
-  return WorkerThreadInfo::isPoolThread(thread);
+  return threadPool->getNativeThread(thread);
 }
 
 extern "C" int pool_pthread_create(pthread_t *thread,
@@ -777,8 +776,17 @@ extern "C" pthread_t pool_pthread_self() {
 }
 
 extern "C" int pool_pthread_equal(pthread_t t1, pthread_t t2) {
-  assert(threadPool && "uninitialized thread pool");
-  return threadPool->pthread_equal(t1, t2);
+  bool isPoolThread1 = WorkerThreadInfo::isPoolThread(t1);
+  bool isPoolThread2 = WorkerThreadInfo::isPoolThread(t2);
+  if (!isPoolThread1 && !isPoolThread2)
+    return pthread_equal(t1, t2);
+  if (isPoolThread1 && isPoolThread2) {
+    assert(threadPool && "uninitialized thread pool");
+    return threadPool->pthread_equal(t1, t2);
+  }
+  // We have one thread pool, one not. Could assert, or just state they are
+  // different, or compare their native threads. Just state false for now.
+  return false;
 }
 
 extern "C" int pool_pthread_detach(pthread_t thread) {
@@ -798,37 +806,35 @@ extern "C" int pool_pthread_join(pthread_t thread, void **value_ptr) {
 // Unimplemented.
 
 extern "C" void pool_pthread_exit(void *value_ptr) {
-  assert(false && "pthread_exit is not implemented");
+  if (!WorkerThreadInfo::isPoolThread()) {
+    pthread_exit(value_ptr);
+  }
+  assert(false && "pool pthread_exit is not implemented");
 }
+
+// Signature is not define in all cases; just define it here.
+extern int pthread_kill(pthread_t thread, int sig);
 
 extern "C" int pool_pthread_kill(pthread_t thread, int sig) {
   if (!WorkerThreadInfo::isPoolThread(thread))
     return pthread_kill(thread, sig);
-  assert(false && "pthread_kill is not implemented");
+  assert(false && "pool pthread_kill is not implemented");
 }
 
 extern "C" int pool_pthread_cancel(pthread_t thread) {
   if (!WorkerThreadInfo::isPoolThread(thread))
     return pthread_cancel(thread);
-  assert(false && "pthread_cancel is not implemented");
+  assert(false && "pool pthread_cancel is not implemented");
 }
 
 // Pass through.
 
 extern "C" int pool_pthread_getschedparam(pthread_t thread, int *policy,
                                           struct sched_param *param) {
-  if (!WorkerThreadInfo::isPoolThread(thread))
-    return pthread_getschedparam(thread, policy, param);
-  assert(threadPool && "uninitialized thread pool");
-  pthread_t nativeThread = threadPool->getNativeThread(thread);
-  return pthread_getschedparam(nativeThread, policy, param);
+  return pthread_getschedparam(getPoolNativeThread(thread), policy, param);
 }
 
 extern "C" int pool_pthread_setschedparam(pthread_t thread, int policy,
                                           const struct sched_param *param) {
-  if (!WorkerThreadInfo::isPoolThread(thread))
-    pthread_setschedparam(thread, policy, param);
-  assert(threadPool && "uninitialized thread pool");
-  pthread_t nativeThread = threadPool->getNativeThread(thread);
-  return pthread_setschedparam(nativeThread, policy, param);
+  return pthread_setschedparam(getPoolNativeThread(thread), policy, param);
 }
