@@ -7,7 +7,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <thread>
+#if USE_SIMPLE_MAP == 0
 #include <unordered_map>
+#endif
 
 #include "kmp_pool.h"
 
@@ -19,8 +21,12 @@
 // WorkerThreadPthreadType associated with a given task. This value is set to
 // U when the worker thread W start to work on the routine R associated with the
 // uniqueTid U. The field is reset to UNDEF once the routine R has completed its
-// work.
-thread_local WorkerThreadPthreadType threadSpecificUniqueTid = UNIQUE_TID_UNDEF;
+// work. But the initial value is given EXTERNAL THREAD (so that any threads not
+// in the pool have this value). The UNDEF/actual UniqueThreadId values are
+// reserved for threads that actually entered the working pool.
+
+thread_local WorkerThreadPthreadType threadSpecificUniqueTid =
+    UNIQUE_TID_EXTERNAL_THREAD;
 
 // Independent functions not tied to a class which are needed to implement
 // functionality.
@@ -383,6 +389,11 @@ int ThreadPool::enterThreadPool() {
     return EAGAIN;
   }
   assert(gTid >= 0 && "expected positive global thread id");
+  // This thread now belong to the worker pool; so threadSpecificUniqueTid goes
+  // from UNIQUE_TID_EXTERNAL_THREAD to UNIQUE_TID_UNDEF.
+  assert(threadSpecificUniqueTid == UNIQUE_TID_EXTERNAL_THREAD &&
+         "expected external thread here");
+  threadSpecificUniqueTid = UNIQUE_TID_UNDEF;
   WorkerThreadInfo *threadInfo = &pool[gTid];
   pthread_t thread = ::pthread_self();
   threadInfo->setPthread(thread);
@@ -401,7 +412,9 @@ int ThreadPool::enterThreadPool() {
     }
   }
   DP(2, printf("  0 %lld WorkerLoop: Stopping loop.\n", (long long)gTid));
+  // Thread is exiting the worker loop, becomes an external thread again.
   threadInfo->resetRoutine();
+  threadSpecificUniqueTid = UNIQUE_TID_EXTERNAL_THREAD;
   // Success.
   return 0;
 }
@@ -428,7 +441,7 @@ int ThreadPool::pthread_create(pthread_t *thread, const pthread_attr_t *attr,
     // Search for a free thread in the pool.
     int64_t size = poolSize.load();
     for (int64_t gTid = 0; gTid < size; ++gTid) {
-      if (wasThreadAvailableBeforeBeingMarkedBusy(gTid)) {
+      if (hasThreadFlippedToBusy(gTid)) {
         // First set the work descriptor associated with call.
         WorkerThreadPthreadType uTid =
             pool[gTid].setRoutine(start_routine, arg, detached);
@@ -456,6 +469,9 @@ int ThreadPool::pthread_create(pthread_t *thread, const pthread_attr_t *attr,
 // Return the pthread_t, namely the uniqueTid associated with this
 // thread.
 pthread_t ThreadPool::pthread_self() {
+  if (threadSpecificUniqueTid == UNIQUE_TID_EXTERNAL_THREAD) {
+    return ::pthread_self();
+  }
   WorkerThreadPthreadType uTid = threadSpecificUniqueTid;
   assert(uTid != UNIQUE_TID_UNDEF && "unspecified unique thread id");
   return (pthread_t)uTid;
@@ -560,7 +576,7 @@ void ThreadPool::callRoutineAndCleanup(WorkerThreadInfo *threadInfo) {
 // the one corresponding to the gTid thread. If that bit is flipped (aka it
 // was zero), then we found an available thread. If that bit is unchanged (aka
 // it was already 1), then the thread was busy and remains seen as busy.
-bool ThreadPool::wasThreadAvailableBeforeBeingMarkedBusy(int64_t gTid) {
+bool ThreadPool::hasThreadFlippedToBusy(int64_t gTid) {
   // Attempt to flip bit to busy
   uint64_t mask = ((uint64_t)1) << ((uint64_t)gTid);
   uint64_t oldStatus = threadBusyStatus.fetch_or(mask);

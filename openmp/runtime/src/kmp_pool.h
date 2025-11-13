@@ -13,8 +13,7 @@
 #define USE_SIMPLE_MAP 1
 #if USE_SIMPLE_MAP
 // Because of linking errors with unordered map, implemented a simple one here.
-template <typename KEY, typename VALUE, int N, KEY EMPTY>
-struct SimpleMap {
+template <typename KEY, typename VALUE, int N, KEY EMPTY> struct SimpleMap {
   SimpleMap();
   void clear();
   int64_t count(KEY key);
@@ -44,10 +43,15 @@ using WorkerThreadPthreadType = uint64_t;
 // bitvector to indicate the available/busy status of each thread in the pool.
 #define MAX_POOL_SIZE 64ll
 
-// Global Thread Id are in the range [0..MAX_POOL_SIZE) at most; undefined
+// Global thread id are in the range [0..MAX_POOL_SIZE) at most; undefined
 // value is set to -1
 #define GLOBAL_TID_UNDEF -1ll
+// Unique thread id will start at MAX_POOL_SIZE; so all numbers between 0 and
+// MAX_POOL_SIZE-1 can be used for special values. UNDEF is used when a given
+// pool thread is not working. EXTERNAL_THREAD is used for any threads that do
+// not belong to the working pool.
 #define UNIQUE_TID_UNDEF ((WorkerThreadPthreadType)0)
+#define UNIQUE_TID_EXTERNAL_THREAD ((WorkerThreadPthreadType)1)
 
 struct ThreadPool;
 
@@ -202,7 +206,7 @@ struct ThreadPool {
 
 private:
   void callRoutineAndCleanup(WorkerThreadInfo *threadInfo);
-  bool wasThreadAvailableBeforeBeingMarkedBusy(int64_t gTid);
+  bool hasThreadFlippedToBusy(int64_t gTid);
   int64_t getNumberOfAvailableThreads();
   void incrementNumberOfAvailableThreads();
   void decrementNumberOfAvailableThreads();
@@ -251,8 +255,7 @@ private:
   // Init: 0 in constructor (once by a single thread).
   // Read/Write:
   // o Incremented in registerThread and setThreadAvailable (multiple threads).
-  // o Decremented in wasThreadAvailableBeforeBeingMarkedBusy/pthread_create
-  //   (multiple threads).
+  // o Decremented in hasThreadFlippedToBusy/pthread_create (multiple threads).
   // Read: In pthread_create to determine if threads are available (multiple
   //   threads).
   std::atomic_int64_t availableThreadNum; /* init 0 */
