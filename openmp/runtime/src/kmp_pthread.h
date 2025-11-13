@@ -30,6 +30,21 @@
 #define pthread_setschedparam(thread, policy, param)                           \
   pool_pthread_setschedparam(thread, int policy, param)
 
+// There are non-posix calls that are not guaranteed to be define everywhere; we
+// want the fall through, and have to do it via #defs because we cannot generate
+// calls to them.
+
+#define __pool_fallthrough(fct, thread, ...)                                   \
+  (!WorkerThreadInfo::isPoolThread(thread)                                     \
+       ? fct(thread, __VA_ARGS__)                                              \
+       : fct(threadPool->getNativeThread(thread), __VA_ARGS__))
+
+#define pthread_getattr_np(thread, attr)                                       \
+  __pool_fallthrough(pthread_getattr_np, thread, attr)
+
+#define pthread_attr_get_np(thread, attr)                                      \
+  __pool_fallthrough(pthread_attr_get_np, thread, attr)
+
 /////////////////////////////////////////////////////////////////////////////////
 // Interface definition for pool_pthread_*
 /////////////////////////////////////////////////////////////////////////////////

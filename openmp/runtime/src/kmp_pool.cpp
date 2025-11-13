@@ -37,7 +37,7 @@ extern void *threadExitLoop(void *t) { return nullptr; };
 /////////////////////////////////////////////////////////////////////////////////
 
 // Debug printing: 0 none; 1 error; 2 start/stop; 3 all
-#define DEBUG 1
+#define DEBUG 3
 #define DP(level, code)                                                        \
   if (level <= DEBUG) {                                                        \
     code;                                                                      \
@@ -102,7 +102,9 @@ VALUE SimpleMap<KEY, VALUE, N, EMPTY>::get(KEY key) {
 void WorkerThreadInfo::init(int64_t gTid) {
   assert(gTid >= 0ll && "expected nonnegative global thread id");
   globalTid = gTid;
-  uniqueTidSeed = gTid;
+  uniqueTid = UNIQUE_TID_UNDEF;
+  // uniqueTSidSeed set to tuple <0, gTid, 1>.
+  uniqueTidSeed = ((uint64_t)gTid << 1) + 1ull;
   routine = nullptr;
   parameter = nullptr;
   detached = false;
@@ -111,7 +113,7 @@ void WorkerThreadInfo::init(int64_t gTid) {
   pthread_mutex_init(&mutexForWorkerLoop, nullptr);
   pthread_cond_init(&conditionForWorkerLoop, nullptr);
   uniqueTidToRoutineReturnValueMap.clear();
-  thread = (pthread_t)0;
+  nativeThread = (pthread_t)0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -123,7 +125,8 @@ int64_t WorkerThreadInfo::getGlobalThreadId() { return globalTid; }
 WorkerThreadInfo::getGlobalTid(WorkerThreadPthreadType uniqueTid) {
   // UniqueTid defined so that its lower bits encode the global thread
   // id associated with that uniqueTid.
-  return uniqueTid % MAX_POOL_SIZE;
+  // Shift by one to get rid of the rightmost "1" bit, then take the mod.
+  return (uniqueTid >> 1) % MAX_POOL_SIZE;
 }
 
 WorkerThreadPthreadType WorkerThreadInfo::getUniqueThreadId() {
@@ -132,10 +135,19 @@ WorkerThreadPthreadType WorkerThreadInfo::getUniqueThreadId() {
 
 WorkerThreadPthreadType WorkerThreadInfo::getNextUniqueTid() {
   // Increment by MAX_POOL_SIZE to preserve the property of uniqueTid.
-  uniqueTidSeed += MAX_POOL_SIZE;
+  uniqueTidSeed += (2 * MAX_POOL_SIZE);
   assert(uniqueTidSeed != UNIQUE_TID_UNDEF && "expected defined uniqueTd");
   assert(getGlobalTid(uniqueTidSeed) == globalTid && "mapping issue");
+  assert(isPoolThread((pthread_t)uniqueTidSeed) && "mapping issue");
   return uniqueTidSeed;
+}
+
+/* static */ bool WorkerThreadInfo::isPoolThread(pthread_t thread) {
+  return ((uint64_t)thread) & 0x1ull;
+}
+
+/* static */ bool WorkerThreadInfo::isPoolThread() {
+  return threadSpecificUniqueTid != UNIQUE_TID_EXTERNAL_THREAD;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -171,7 +183,8 @@ void *WorkerThreadInfo::callRoutine() {
   assert(uniqueTid != UNIQUE_TID_UNDEF && "expected defined unique id");
   assert(routine && "expected a routine");
   // Set the thread private threadSpecificUniqueTid so that calls to
-  // pthread_self() can find the right pthread id (namely a uniqueTid).
+  // ThreadPool::pthread_self() can find the right pthread id (namely a
+  // uniqueTid).
   threadSpecificUniqueTid = uniqueTid;
   return routine(parameter);
 }
@@ -204,14 +217,14 @@ void WorkerThreadInfo::setTerminated() {
 // Support for detachable.
 bool WorkerThreadInfo::isDetached() { return detached; }
 
-pthread_t WorkerThreadInfo::getPthread() {
-  assert(thread != (pthread_t)0 && "uninitialized WorkerThreadInfo");
-  return thread;
+pthread_t WorkerThreadInfo::getNativeThread() {
+  assert(nativeThread != (pthread_t)0 &&
+         "expected initialized WorkerThreadInfo");
+  return nativeThread;
 }
 
-void WorkerThreadInfo::setPthread(pthread_t newThread) {
-  assert(newThread != (pthread_t)0 && "uninitialized WorkerThreadInfo");
-  thread = newThread;
+void WorkerThreadInfo::setNativeThread(pthread_t thread) {
+  nativeThread = thread;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -348,11 +361,11 @@ bool WorkerThreadInfo::waitInJoin(WorkerThreadPthreadType joiningUTid,
 
 #if DEBUG
 WorkerThreadRoutineType WorkerThreadInfo::getRoutine() { return routine; }
+#endif
 
 /* static */ int64_t WorkerThreadInfo::getGlobalTid(void *pthread) {
   return getGlobalTid((WorkerThreadPthreadType)pthread);
 }
-#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 // ThreadPool methods
@@ -361,10 +374,12 @@ WorkerThreadRoutineType WorkerThreadInfo::getRoutine() { return routine; }
 ///////////////////////////////////////////////////////////////////////////////
 // Methods to construct and register threads into the pool.
 
-// Constructor.
 void ThreadPool::init(int64_t n) {
-  maxPoolSize = n < MAX_POOL_SIZE ? n : MAX_POOL_SIZE;
+  n = n > 0 ? n : MAX_POOL_SIZE; // n <= 0 defaults to max pool.
+  maxPoolSize = n < MAX_POOL_SIZE ? n : MAX_POOL_SIZE; // cap at max pool.
   assert(maxPoolSize > 0 && "assumed at least one thread for a given pool");
+  assert(__alignof__(pthread_t) > 1 &&
+         "Support only implementations where pthread is not byte-aligned");
   // Init pool info with its global id.
   for (int64_t gTid = 0ll; gTid < maxPoolSize; ++gTid)
     pool[gTid].init(gTid);
@@ -395,8 +410,8 @@ int ThreadPool::enterThreadPool() {
          "expected external thread here");
   threadSpecificUniqueTid = UNIQUE_TID_UNDEF;
   WorkerThreadInfo *threadInfo = &pool[gTid];
-  pthread_t thread = ::pthread_self();
-  threadInfo->setPthread(thread);
+  pthread_t nativeThread = ::pthread_self(); // from pthread.h library.
+  threadInfo->setNativeThread(nativeThread);
   memoryFence();
   incrementNumberOfAvailableThreads();
   // Start waiting for tasks to be executed.
@@ -469,9 +484,7 @@ int ThreadPool::pthread_create(pthread_t *thread, const pthread_attr_t *attr,
 // Return the pthread_t, namely the uniqueTid associated with this
 // thread.
 pthread_t ThreadPool::pthread_self() {
-  if (threadSpecificUniqueTid == UNIQUE_TID_EXTERNAL_THREAD) {
-    return ::pthread_self();
-  }
+  assert(WorkerThreadInfo::isPoolThread() && "expected pool worker thread");
   WorkerThreadPthreadType uTid = threadSpecificUniqueTid;
   assert(uTid != UNIQUE_TID_UNDEF && "unspecified unique thread id");
   return (pthread_t)uTid;
@@ -482,6 +495,8 @@ int ThreadPool::pthread_equal(pthread_t t1, pthread_t t2) {
 }
 
 int ThreadPool::pthread_detach(pthread_t thread) {
+  assert(WorkerThreadInfo::isPoolThread(thread) &&
+         "expected pool worker thread");
   WorkerThreadPthreadType uTid = (WorkerThreadPthreadType)thread;
   // Wait until thread is done with uTid.
   int64_t gTid = WorkerThreadInfo::getGlobalTid(uTid);
@@ -504,6 +519,8 @@ int ThreadPool::pthread_detach(pthread_t thread) {
 
 int ThreadPool::pthread_join(pthread_t thread, void **value_ptr) {
   assert(value_ptr && "expected a nonnull value_ptr");
+  assert(WorkerThreadInfo::isPoolThread(thread) &&
+         "expected pool worker thread");
   // Simulated pthread_t thread value is uniqueTid.
   WorkerThreadPthreadType uTid = (WorkerThreadPthreadType)thread;
   // Wait until thread is done with uTid.
@@ -620,13 +637,13 @@ bool ThreadPool::validGlobalTid(int64_t gTid) {
 }
 
 // Translate the ThreadPool returned pthread_t, which is really a Unique thread
-// id into the underlying pthread_t of the actual pthread that
+// id into the native pthread_t of the actual pthread that
 // performs/performed the work.
-pthread_t ThreadPool::getUnderlyingPthread(pthread_t thread) {
+pthread_t ThreadPool::getNativeThread(pthread_t thread) {
   WorkerThreadPthreadType uTid = (WorkerThreadPthreadType)thread;
   int64_t gTid = WorkerThreadInfo::getGlobalTid(uTid);
   assert(validGlobalTid(gTid) && "invalid unique thread id");
-  return pool[gTid].getPthread();
+  return pool[gTid].getNativeThread();
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -640,20 +657,23 @@ static pthread_mutex_t mutexThreadPoolInit = PTHREAD_MUTEX_INITIALIZER;
 /////////////////////////////////////////////////////////////////////////////////
 // Support
 
-// Get thread limit from it or env. Protected by a mutex.
+// Get thread limit from provided limit, or if <= 0 from env. Call must be
+// protected by a mutex.
 static void getThreadLimit(int &threadLimit, const char *envVar) {
-  if (threadLimit == 0) {
-    assert(envVar && "expected thread_limit or env_var");
+  if (threadLimit <= 0 && envVar) {
     char *varStr = std::getenv(envVar);
     assert(varStr && "When no thread limit are explicitly provided, expect a "
                      "define env_var");
     int rc = sscanf(varStr, "%d", &threadLimit);
     assert(rc == 1 && "failed to scan env_var");
+    DP(1, printf("Get pool size from %s: %d\n", envVar, threadLimit));
+  } else {
+    DP(1, printf("Get pool size argument: %d\n", threadLimit));
   }
-  assert(threadLimit > 0 && "expected positive thread limit");
+  assert(threadLimit >= 0 && "expected positive thread limit");
 }
 
-// Set thread limit to the env. Protected by a mutex.
+// Set thread limit to the env. Call must be protected by a mutex.
 static void setThreadLimit(int threadLimit, const char *envVar) {
   assert(threadLimit > 0 && "expected a positive thread limit");
   assert(envVar && "expected thread_limit or env_var");
@@ -697,7 +717,7 @@ static void *registerWorker(void *t) {
 }
 
 /////////////////////////////////////////////////////////////////////////////////
-// Exported functions
+// Exported functions: initialization of pool.
 
 extern "C" void pool_pthread_become_worker(int thread_limit,
                                            const char *env_var) {
@@ -730,6 +750,11 @@ extern "C" int pool_pthread_wait_until_fully_populated() {
   return threadPool->getMaxThreadPoolSize();
 }
 
+/////////////////////////////////////////////////////////////////////////////////
+// Exported functions: simulating pthreads.
+
+// Fully implemented.
+
 extern "C" int pool_pthread_create(pthread_t *thread,
                                    const pthread_attr_t *attr,
                                    void *(*start_routine)(void *), void *arg) {
@@ -738,6 +763,8 @@ extern "C" int pool_pthread_create(pthread_t *thread,
 }
 
 extern "C" pthread_t pool_pthread_self() {
+  if (!WorkerThreadInfo::isPoolThread())
+    return pthread_self();
   assert(threadPool && "uninitialized thread pool");
   return threadPool->pthread_self();
 }
@@ -748,40 +775,53 @@ extern "C" int pool_pthread_equal(pthread_t t1, pthread_t t2) {
 }
 
 extern "C" int pool_pthread_detach(pthread_t thread) {
+  if (!WorkerThreadInfo::isPoolThread(thread))
+    return pthread_detach(thread);
   assert(threadPool && "uninitialized thread pool");
   return threadPool->pthread_detach(thread);
 }
 
 extern "C" int pool_pthread_join(pthread_t thread, void **value_ptr) {
+  if (!WorkerThreadInfo::isPoolThread(thread))
+    return pthread_join(thread, value_ptr);
   assert(threadPool && "uninitialized thread pool");
   return threadPool->pthread_join(thread, value_ptr);
 }
 
-// Unimplemented
+// Unimplemented.
 
 extern "C" void pool_pthread_exit(void *value_ptr) {
   assert(false && "pthread_exit is not implemented");
 }
 
 extern "C" int pool_pthread_kill(pthread_t thread, int sig) {
+  if (!WorkerThreadInfo::isPoolThread(thread))
+    return pthread_kill(thread, sig);
   assert(false && "pthread_kill is not implemented");
 }
 
 extern "C" int pool_pthread_cancel(pthread_t thread) {
+  if (!WorkerThreadInfo::isPoolThread(thread))
+    return pthread_cancel(thread);
   assert(false && "pthread_cancel is not implemented");
 }
 
-// Pass through
+// Pass through.
+
 extern "C" int pool_pthread_getschedparam(pthread_t thread, int *policy,
                                           struct sched_param *param) {
+  if (!WorkerThreadInfo::isPoolThread(thread))
+    return pthread_getschedparam(thread, policy, param);
   assert(threadPool && "uninitialized thread pool");
-  pthread_t underlyingThread = threadPool->getUnderlyingPthread(thread);
-  return pthread_getschedparam(underlyingThread, policy, param);
+  pthread_t nativeThread = threadPool->getNativeThread(thread);
+  return pthread_getschedparam(nativeThread, policy, param);
 }
 
 extern "C" int pool_pthread_setschedparam(pthread_t thread, int policy,
                                           const struct sched_param *param) {
+  if (!WorkerThreadInfo::isPoolThread(thread))
+    pthread_setschedparam(thread, policy, param);
   assert(threadPool && "uninitialized thread pool");
-  pthread_t underlyingThread = threadPool->getUnderlyingPthread(thread);
-  return pthread_setschedparam(underlyingThread, policy, param);
+  pthread_t nativeThread = threadPool->getNativeThread(thread);
+  return pthread_setschedparam(nativeThread, policy, param);
 }

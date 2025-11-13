@@ -46,12 +46,13 @@ using WorkerThreadPthreadType = uint64_t;
 // Global thread id are in the range [0..MAX_POOL_SIZE) at most; undefined
 // value is set to -1
 #define GLOBAL_TID_UNDEF -1ll
-// Unique thread id will start at MAX_POOL_SIZE; so all numbers between 0 and
-// MAX_POOL_SIZE-1 can be used for special values. UNDEF is used when a given
+// Unique thread id will start at 2* MAX_POOL_SIZE; so all numbers between 0 and
+// 2*MAX_POOL_SIZE-1 can be used for special values. UNDEF is used when a given
 // pool thread is not working. EXTERNAL_THREAD is used for any threads that do
-// not belong to the working pool.
-#define UNIQUE_TID_UNDEF ((WorkerThreadPthreadType)0)
-#define UNIQUE_TID_EXTERNAL_THREAD ((WorkerThreadPthreadType)1)
+// not belong to the working pool. Lowest bit should be set to identify this as
+// a worker pool id.
+#define UNIQUE_TID_UNDEF ((WorkerThreadPthreadType)1)
+#define UNIQUE_TID_EXTERNAL_THREAD ((WorkerThreadPthreadType)3)
 
 struct ThreadPool;
 
@@ -68,6 +69,8 @@ struct WorkerThreadInfo {
   // Unique thread Id.
   WorkerThreadPthreadType getUniqueThreadId();
   WorkerThreadPthreadType getNextUniqueTid();
+  static bool isPoolThread(); // Is self a pool thread or not.
+  static bool isPoolThread(pthread_t thread); // Is thread a pool thread or not.
 
   // Called by the parent thread P who detected an idle worker thread W and want
   // to initiate a new routine for thread W.
@@ -84,8 +87,8 @@ struct WorkerThreadInfo {
   bool isTerminated();
   void setTerminated();
   bool isDetached();
-  pthread_t getPthread();
-  void setPthread(pthread_t pthread);
+  pthread_t getNativeThread();
+  void setNativeThread(pthread_t thread);
 
   // Synchronization methods for getting new work.
   void setUniqueTidAndSignalWorkerLoop(WorkerThreadPthreadType newUniqueTid);
@@ -130,6 +133,23 @@ private:
   // with a distinct uniqueTid. Thus in these latter both cases, J will know
   // that the routine R is completed.
   //
+  // The unique thread id internal fields are as follow:
+  //
+  // <unique number : global thread id : 1>
+  //
+  // where:
+  // o  Unique number is a per-worker unique id.
+  // o  Global thread id is the id of this thread, so that we may easily
+  //    identify the worker associated with a given unique thread id.
+  // o  Rightmost bit set to "1" to identify this thread_t as a pool pthread_t.
+  //    Because thread_t is an opaque pointer to a "struct pthread" data
+  //    structure, and that struct pthread must be naturally aligned to at least
+  //    8 bytes (and often more, like 32 bytes), we know that the opaque address
+  //    returned as pthread_t must have its lower 8 bit set to zero. Thus by
+  //    having a "1" in the lowest bit of every uniqueTid, we can unambiguously
+  //    determine that a given pthread_t is a native (lowest bit 0) or a pool
+  //    unique thread id (lowest bit 1).
+  //
   // Init: In constructor to UNDEF.
   // Write:
   // o In setUniqueTidAndSignalWorkerLoop to indicate that a new routine has
@@ -143,8 +163,8 @@ private:
   volatile WorkerThreadPthreadType uniqueTid = UNIQUE_TID_UNDEF;
 
   // Seed for the next uniqueTid; seeded with globalTid and incremented
-  // by MAX_POOL_SIZE so that effectively each thread in the pool assigns unique
-  // numbers without conflicts.
+  // by a multiple MAX_POOL_SIZE so that effectively each thread in the pool
+  // assigns unique numbers without conflicts.
   //
   // Init: In constructor to globalTid.
   // Read/Write: In getNewUniqueThreadId/pthread_create (by multiple threads).
@@ -176,7 +196,7 @@ private:
 #endif
 
   // Pthread_t value of this actual thread (standard pthread_self value)
-  pthread_t thread = (pthread_t)0;
+  pthread_t nativeThread = (pthread_t)0;
 };
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -184,8 +204,8 @@ private:
 /////////////////////////////////////////////////////////////////////////////////
 
 struct ThreadPool {
-  ThreadPool(int64_t n = MAX_POOL_SIZE) { init(n); }
-  void init(int64_t);
+  ThreadPool(int64_t n = 0 /* <=0 default to MAX_POOL_SIZE */) { init(n); }
+  void init(int64_t n = 0 /* <=0 default to MAX_POOL_SIZE */);
 
   // Registering a thread into the pool, get current pool size.
   int enterThreadPool();
@@ -202,7 +222,7 @@ struct ThreadPool {
 
   // Infra
   void setThreadAvailable(int64_t gTid); // Releasing a thread.
-  pthread_t getUnderlyingPthread(pthread_t thread); // Translate pthread_t.
+  pthread_t getNativeThread(pthread_t thread); // Translate pthread_t.
 
 private:
   void callRoutineAndCleanup(WorkerThreadInfo *threadInfo);
