@@ -5,11 +5,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-//#include <thread>
 #if !KMP_OS_WASI
 #include <signal.h>
 #endif
-
 
 #if USE_SIMPLE_MAP == 0
 #include <unordered_map>
@@ -758,6 +756,11 @@ extern "C" int pool_pthread_wait_until_fully_populated() {
 // Exported functions: simulating pthreads.
 
 // Fully implemented.
+
+extern "C" bool isPoolThread(pthread_t thread) {
+  assert(threadPool && "uninitialized thread pool");
+  return WorkerThreadInfo::isPoolThread(thread);
+}
 
 extern "C" int pool_pthread_create(pthread_t *thread,
                                    const pthread_attr_t *attr,
