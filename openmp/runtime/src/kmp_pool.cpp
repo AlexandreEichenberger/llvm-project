@@ -662,15 +662,17 @@ static pthread_mutex_t mutexThreadPoolInit = PTHREAD_MUTEX_INITIALIZER;
 static void getThreadLimit(int &threadLimit, const char *envVar) {
   if (threadLimit <= 0 && envVar) {
     char *varStr = std::getenv(envVar);
-    assert(varStr && "When no thread limit are explicitly provided, expect a "
-                     "define env_var");
-    int rc = sscanf(varStr, "%d", &threadLimit);
-    assert(rc == 1 && "failed to scan env_var");
-    DP(1, printf("Get pool size from %s: %d\n", envVar, threadLimit));
+    if (varStr) {
+      int scannedLimit;
+      if (std::sscanf(varStr, "%d", &scannedLimit) == 1) {
+        threadLimit = scannedLimit;
+        DP(1, printf("Get pool size from %s: %s -> %d\n", envVar, varStr,
+                     threadLimit));
+      }
+    }
   } else {
     DP(1, printf("Get pool size argument: %d\n", threadLimit));
   }
-  assert(threadLimit >= 0 && "expected positive thread limit");
 }
 
 // Set thread limit to the env. Call must be protected by a mutex.
@@ -681,6 +683,8 @@ static void setThreadLimit(int threadLimit, const char *envVar) {
   snprintf(varStr, sizeof(varStr), "%d", threadLimit);
   int rc = setenv(envVar, varStr, 1);
   assert(!rc && "failed to set environment var env_var");
+  printf("Set env var %s to %d\n", envVar, threadLimit);
+  fflush(stdout);
 }
 
 // Init protected by a mutex (when we actually have to do the init).
@@ -700,7 +704,7 @@ bool init(int threadLimit, const char *envVar) {
     threadPool->init(threadLimit);
     assert(threadPool && "failed to allocate thread pool");
     int actualLimit = threadPool->getMaxThreadPoolSize();
-    if (envVar && threadLimit != actualLimit)
+    if (envVar) // Has to set it because that is how OMP looks at it.
       setThreadLimit(actualLimit, envVar);
     printf("Use thread pool of size %d\n", actualLimit);
     fflush(stdout);

@@ -10,7 +10,8 @@
 #if KMP_USE_POOL_PTHREAD
 
 // There are non-posix pthread calls that are not guaranteed to be define
-// everywhere. We thus have to handle them with macros only.
+// everywhere. We thus have to handle them with macros only, so that the macro
+// issued calls are expanded in the context they are called.
 
 extern "C" pthread_t getNativeThreadButAssertIfPoolThread(pthread_t thread);
 extern "C" pthread_t getPoolNativeThread(pthread_t thread);
