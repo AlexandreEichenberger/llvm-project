@@ -664,7 +664,7 @@ static void getThreadLimit(int &threadLimit, const char *envVar) {
     char *varStr = std::getenv(envVar);
     if (varStr) {
       int scannedLimit;
-      if (std::sscanf(varStr, "%d", &scannedLimit) == 1) {
+      if (sscanf(varStr, "%d", &scannedLimit) == 1) {
         threadLimit = scannedLimit;
         DP(1, printf("Get pool size from %s: %s -> %d\n", envVar, varStr,
                      threadLimit));
