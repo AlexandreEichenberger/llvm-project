@@ -46,6 +46,10 @@ extern "C" pthread_t getPoolNativeThread(pthread_t thread);
   __pool_fallthrough(pthread_getattr_np, thread, attr)
 #define pthread_attr_get_np(thread, attr)                                      \
   __pool_fallthrough(pthread_attr_get_np, thread, attr)
+#define pthread_set_name_np(thread, name)                                      \
+  __pool_fallthrough(pthread_set_name_np, thread, name)
+#define pthread_setname_np(thread, name)                                       \
+  __pool_fallthrough(pthread_setname_np, thread, name)
 
 /////////////////////////////////////////////////////////////////////////////////
 // Interface definition for pool_pthread_*

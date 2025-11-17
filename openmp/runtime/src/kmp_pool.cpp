@@ -11,7 +11,9 @@
 #include <unordered_map>
 #endif
 
+#include "kmp_environment.h"
 #include "kmp_pool.h"
+#include "kmp_str.h"
 
 /////////////////////////////////////////////////////////////////////////////////
 // Local Symbols / Variables.
@@ -659,16 +661,22 @@ static pthread_mutex_t mutexThreadPoolInit = PTHREAD_MUTEX_INITIALIZER;
 
 // Get thread limit from provided limit, or if <= 0 from env. Call must be
 // protected by a mutex.
-static void getThreadLimit(int &threadLimit, const char *envVar) {
-  if (threadLimit <= 0 && envVar) {
-    char *varStr = std::getenv(envVar);
-    if (varStr) {
-      int scannedLimit;
-      if (sscanf(varStr, "%d", &scannedLimit) == 1) {
-        threadLimit = scannedLimit;
-        DP(1, printf("Get pool size from %s: %s -> %d\n", envVar, varStr,
-                     threadLimit));
+static void getThreadLimit(int &threadLimit, const char *envVarName) {
+  if (threadLimit <= 0 && envVarName) {
+    char *envVarValue = __kmp_env_get(envVarName);
+    if (envVarValue != nullptr) {
+      char const *msg = nullptr;
+      kmp_uint64 value;
+      __kmp_str_to_uint(envVarValue, &value, &msg);
+      if (msg == nullptr) {
+        DP(2, printf("Get pool size from env %s = %lld\n", envVarName, value));
+        threadLimit = value;
+      } else {
+        DP(1, printf("Invalid pool size from env %s: %s\n", envVarName,
+                     envVarValue));
       }
+    } else {
+      DP(2, printf("Environment variable %s not set.\n", envVarName));
     }
   } else {
     DP(1, printf("Get pool size argument: %d\n", threadLimit));
@@ -676,20 +684,18 @@ static void getThreadLimit(int &threadLimit, const char *envVar) {
 }
 
 // Set thread limit to the env. Call must be protected by a mutex.
-static void setThreadLimit(int threadLimit, const char *envVar) {
+static void setThreadLimit(int threadLimit, const char *envVarName) {
   assert(threadLimit > 0 && "expected a positive thread limit");
-  assert(envVar && "expected thread_limit or env_var");
-  char varStr[50];
+  assert(envVarName && "expected thread_limit or env_var");
+  char varStr[20];
   snprintf(varStr, sizeof(varStr), "%d", threadLimit);
-  int rc = setenv(envVar, varStr, 1);
-  assert(!rc && "failed to set environment var env_var");
-  printf("Set env var %s to %d\n", envVar, threadLimit);
-  fflush(stdout);
+  __kmp_env_set(envVarName, varStr, 1);
+  DP(2, printf("Set env var %s to %d\n", envVarName, threadLimit));
 }
 
 // Init protected by a mutex (when we actually have to do the init).
 // Return true when we actually perform a new initialization.
-bool init(int threadLimit, const char *envVar) {
+bool init(int threadLimit, const char *envVarName) {
   // Test if initalized
   if (threadPool)
     return false;
@@ -699,13 +705,13 @@ bool init(int threadLimit, const char *envVar) {
   assert(!rc && "failed to acquire worker loop lock");
   if (!threadPool) {
     // Still not initialized, now initialize inside the lock.
-    getThreadLimit(threadLimit, envVar);
+    getThreadLimit(threadLimit, envVarName);
     threadPool = (ThreadPool *)malloc(sizeof(ThreadPool));
     threadPool->init(threadLimit);
     assert(threadPool && "failed to allocate thread pool");
     int actualLimit = threadPool->getMaxThreadPoolSize();
-    if (envVar) // Has to set it because that is how OMP looks at it.
-      setThreadLimit(actualLimit, envVar);
+    if (envVarName) // Has to set it because that is how OMP looks at it.
+      setThreadLimit(actualLimit, envVarName);
     printf("Use thread pool of size %d\n", actualLimit);
     fflush(stdout);
     newInit = true;
