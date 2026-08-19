@@ -15,14 +15,21 @@
 // Because of linking errors with unordered map, implemented a simple one here.
 template <typename KEY, typename VALUE, int N, KEY EMPTY> struct SimpleMap {
   SimpleMap();
+  ~SimpleMap();
   void clear();
   int64_t count(KEY key);
   void add(KEY key, VALUE value); // Assert when map is full.
   VALUE erase(KEY key); // Return erased value; assert if not found.
   VALUE get(KEY key); // Assert if not found.
 private:
-  KEY keys[N];
-  VALUE values[N];
+  void resize();
+
+  int64_t size;
+  KEY *keys;
+  VALUE *values;
+  // Cached array for normal (non-growing) cases.
+  KEY localKeys[N];
+  VALUE localValues[N];
 };
 #endif
 

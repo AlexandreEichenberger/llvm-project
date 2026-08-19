@@ -1,16 +1,17 @@
 #include <atomic>
 #include <cassert>
+#include <errno.h>
 #include <functional>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <errno.h>
 
 #if USE_SIMPLE_MAP == 0
 #include <unordered_map>
 #endif
 
+#include "kmp_debug.h"
 #include "kmp_environment.h"
 #include "kmp_pool.h"
 #include "kmp_str.h"
@@ -38,31 +39,62 @@ extern void *threadExitLoop(void *t) { return nullptr; };
 // Debug and Helper functions
 /////////////////////////////////////////////////////////////////////////////////
 
-// Debug printing: 0 none; 1 error; 2 start/stop; 3 all
-#define DEBUG 3
-#define DP(level, code)                                                        \
-  if (level <= DEBUG) {                                                        \
-    code;                                                                      \
-    fflush(stdout);                                                            \
-  }
-
 #define memoryFence() std::atomic_thread_fence(std::memory_order_seq_cst)
 
 template <typename KEY, typename VALUE, int N, KEY EMPTY>
-SimpleMap<KEY, VALUE, N, EMPTY>::SimpleMap() {
+SimpleMap<KEY, VALUE, N, EMPTY>::SimpleMap()
+    : size(N), keys(&localKeys[0]), values(&localValues[0]) {
   clear();
 }
 
 template <typename KEY, typename VALUE, int N, KEY EMPTY>
+SimpleMap<KEY, VALUE, N, EMPTY>::~SimpleMap() {
+  if (size > N) {
+    // Was grown one or more times, free dynamic arrays.
+    assert(keys != localKeys && "expected dynamic keys");
+    assert(values != localValues && "expected dynamic values");
+    free(keys);
+    free(values);
+  }
+}
+
+template <typename KEY, typename VALUE, int N, KEY EMPTY>
 void SimpleMap<KEY, VALUE, N, EMPTY>::clear() {
-  for (int64_t k = 0; k < N; ++k)
+  for (int64_t k = 0; k < size; ++k)
     keys[k] = EMPTY;
+}
+
+template <typename KEY, typename VALUE, int N, KEY EMPTY>
+void SimpleMap<KEY, VALUE, N, EMPTY>::resize() {
+  int64_t newSize = size + N;
+  KEY *newKeys = (KEY *)malloc(newSize * sizeof(KEY));
+  assert(newKeys && "failed to allocate new keys");
+  VALUE *newValues = (VALUE *)malloc(newSize * sizeof(VALUE));
+  assert(newValues && "failed to allocate new values");
+  // Copy old keys & values.
+  for (int64_t k = 0; k < size; ++k) {
+    newKeys[k] = keys[k];
+    newValues[k] = values[k];
+  }
+  // Reset new keys.
+  for (int64_t k = size; k < newSize; ++k)
+    newKeys[k] = EMPTY;
+  // Establish new keys/values.
+  if (size > N) {
+    assert(keys != localKeys && "expected dynamic keys");
+    assert(values != localValues && "expected dynamic values");
+    free(keys);
+    free(values);
+  }
+  size = newSize;
+  keys = newKeys;
+  values = newValues;
 }
 
 template <typename KEY, typename VALUE, int N, KEY EMPTY>
 int64_t SimpleMap<KEY, VALUE, N, EMPTY>::count(KEY key) {
   int64_t n = 0;
-  for (int64_t k = 0; k < N; ++k)
+  for (int64_t k = 0; k < size; ++k)
     if (keys[k] == key)
       ++n;
   return n;
@@ -70,18 +102,22 @@ int64_t SimpleMap<KEY, VALUE, N, EMPTY>::count(KEY key) {
 
 template <typename KEY, typename VALUE, int N, KEY EMPTY>
 void SimpleMap<KEY, VALUE, N, EMPTY>::add(KEY key, VALUE value) {
-  for (int64_t k = 0; k < N; ++k)
+  for (int64_t k = 0; k < size; ++k)
     if (keys[k] == EMPTY) {
       keys[k] = key;
       values[k] = value;
       return;
     }
-  assert(false && "simple map is too small");
+  // Not enough space, grow arrays and save in first new element.
+  int64_t oldSize = size;
+  resize();
+  keys[oldSize] = key;
+  values[oldSize] = value;
 }
 
 template <typename KEY, typename VALUE, int N, KEY EMPTY>
 VALUE SimpleMap<KEY, VALUE, N, EMPTY>::erase(KEY key) {
-  for (int64_t k = 0; k < N; ++k)
+  for (int64_t k = 0; k < size; ++k)
     if (keys[k] == key) {
       keys[k] = EMPTY;
       return values[k];
@@ -91,7 +127,7 @@ VALUE SimpleMap<KEY, VALUE, N, EMPTY>::erase(KEY key) {
 
 template <typename KEY, typename VALUE, int N, KEY EMPTY>
 VALUE SimpleMap<KEY, VALUE, N, EMPTY>::get(KEY key) {
-  for (int64_t k = 0; k < N; ++k)
+  for (int64_t k = 0; k < size; ++k)
     if (keys[k] == key)
       return values[k];
   assert(false && "did not find key to remove");
@@ -170,7 +206,7 @@ WorkerThreadInfo::setRoutine(WorkerThreadRoutineType newRoutine,
   assert(isIdle() && "Expected idle thread when setting a new routine");
   assert(newRoutine && "expected a new routine");
   WorkerThreadPthreadType newUniqueTid = getNextUniqueTid();
-  DP(2, printf("  %llu %lld setRoutine: Fct 0x%llx\n",
+  KA_TRACE(5, ("  %llu %lld setRoutine: Fct 0x%llx\n",
                (unsigned long long)newUniqueTid, (long long)globalTid,
                (unsigned long long)newRoutine));
   routine = newRoutine;
@@ -193,7 +229,7 @@ void *WorkerThreadInfo::callRoutine() {
 
 // Reset the work descriptor to indicate that this thread is idle.
 void WorkerThreadInfo::resetRoutine() {
-  DP(2, printf("  %llu %lld resetRoutine: Fct 0x%llx\n",
+  KA_TRACE(5, ("  %llu %lld resetRoutine: Fct 0x%llx\n",
                (unsigned long long)uniqueTid, (long long)globalTid,
                (unsigned long long)routine));
   routine = nullptr; // Not really needed; used to check nonull is asserts.
@@ -281,9 +317,9 @@ void WorkerThreadInfo::signalForJoinAndResetRoutine(ThreadPool *threadPool,
 #else
     uniqueTidToRoutineReturnValueMap[key] = value;
 #endif
-    DP(3, printf("  %llu %lld map: %llu -> %llu\n",
-                 (unsigned long long)uniqueTid, (long long)globalTid,
-                 (unsigned long long)key, (unsigned long long)value));
+    KA_TRACE(10, ("  %llu %lld map: %llu -> %llu\n",
+                  (unsigned long long)uniqueTid, (long long)globalTid,
+                  (unsigned long long)key, (unsigned long long)value));
   }
   // Reset the thread worker info to indicate that that thread is now
   // available to new tasks. Must be done here as otherwise a joining thread
@@ -310,14 +346,14 @@ int WorkerThreadInfo::setDetached(WorkerThreadPthreadType detachingUTid) {
   int rc = pthread_mutex_lock(&mutexForJoin);
   assert(!rc && "failed to acquire join lock");
   if (detachingUTid == uniqueTid) {
-    DP(3, printf("  %llu %lld setDetached: success\n",
-                 (unsigned long long)uniqueTid, (long long)globalTid));
+    KA_TRACE(10, ("  %llu %lld setDetached: success\n",
+                  (unsigned long long)uniqueTid, (long long)globalTid));
     detached = true;
     failureCode = 0;
   } else {
-    DP(3, printf("  %llu %lld setDetached: failure, now processing %llu\n",
-                 (unsigned long long)detachingUTid, (long long)globalTid,
-                 (unsigned long long)uniqueTid));
+    KA_TRACE(10, ("  %llu %lld setDetached: failure, now processing %llu\n",
+                  (unsigned long long)detachingUTid, (long long)globalTid,
+                  (unsigned long long)uniqueTid));
     detached = true;
     failureCode = 1;
   }
@@ -351,9 +387,9 @@ bool WorkerThreadInfo::waitInJoin(WorkerThreadPthreadType joiningUTid,
     uint64_t value = uniqueTidToRoutineReturnValueMap[key];
     uniqueTidToRoutineReturnValueMap.erase(key);
 #endif
-    DP(3, printf("  %llu %lld unmap: %llu -> %llu\n",
-                 (unsigned long long)joiningUTid, (long long)globalTid,
-                 (unsigned long long)key, (unsigned long long)value));
+    KA_TRACE(10, ("  %llu %lld unmap: %llu -> %llu\n",
+                  (unsigned long long)joiningUTid, (long long)globalTid,
+                  (unsigned long long)key, (unsigned long long)value));
     *value_ptr = (void *)value;
   }
   rc = pthread_mutex_unlock(&mutexForJoin);
@@ -401,7 +437,7 @@ int ThreadPool::enterThreadPool() {
   // Get the thread's global thread id and grow the pool size.
   int64_t gTid = poolSize.fetch_add(1ll);
   if (gTid >= maxPoolSize) {
-    DP(1, printf("  0 %lld enterThreadPool: Thread pool is full.\n",
+    KA_TRACE(1, ("  0 %lld enterThreadPool: Thread pool is full.\n",
                  (long long)gTid));
     return EAGAIN;
   }
@@ -417,7 +453,7 @@ int ThreadPool::enterThreadPool() {
   memoryFence();
   incrementNumberOfAvailableThreads();
   // Start waiting for tasks to be executed.
-  DP(3, printf("  %lld enterThreadPool: start work loop\n", (long long)gTid));
+  KA_TRACE(10, ("  %lld enterThreadPool: start work loop\n", (long long)gTid));
   while (true) {
     threadInfo->waitInWorkerLoop();
     if (!threadInfo->isIdle()) {
@@ -428,7 +464,7 @@ int ThreadPool::enterThreadPool() {
       callRoutineAndCleanup(threadInfo);
     }
   }
-  DP(2, printf("  0 %lld WorkerLoop: Stopping loop.\n", (long long)gTid));
+  KA_TRACE(5, ("  0 %lld WorkerLoop: Stopping loop.\n", (long long)gTid));
   // Thread is exiting the worker loop, becomes an external thread again.
   threadInfo->resetRoutine();
   threadSpecificUniqueTid = UNIQUE_TID_EXTERNAL_THREAD;
@@ -462,9 +498,9 @@ int ThreadPool::pthread_create(pthread_t *thread, const pthread_attr_t *attr,
         // First set the work descriptor associated with call.
         WorkerThreadPthreadType uTid =
             pool[gTid].setRoutine(start_routine, arg, detached);
-        DP(3, printf("  %llu %lld pthread_create: Set fct %llx (%d iter)\n",
-                     (unsigned long long)uTid, (long long)gTid,
-                     (long long)start_routine, (int)attempt));
+        KA_TRACE(10, ("  %llu %lld pthread_create: Set fct %llx (%d iter)\n",
+                      (unsigned long long)uTid, (long long)gTid,
+                      (long long)start_routine, (int)attempt));
         // Then return the new uniqueTid as the pthread value. Ensure
         // that the routine fields are seen before thread.
         memoryFence();
@@ -475,7 +511,7 @@ int ThreadPool::pthread_create(pthread_t *thread, const pthread_attr_t *attr,
     }
   }
   // Failed to find any available free threads.
-  DP(1, printf("  pthread_create: No threads available (%lld try, avail "
+  KA_TRACE(1, ("  pthread_create: No threads available (%lld try, avail "
                "%lld out of %lld pool threads).\n",
                (long long)attempt, (long long)getNumberOfAvailableThreads(),
                (long long)poolSize.load()));
@@ -504,7 +540,7 @@ int ThreadPool::pthread_detach(pthread_t thread) {
   int64_t gTid = WorkerThreadInfo::getGlobalTid(uTid);
   if (!validGlobalTid(gTid)) {
     // Corrupted thread parameter., could not find the corresponding info.
-    DP(1, printf("  %llu %lld pthread_detach: Could not find thread\n",
+    KA_TRACE(1, ("  %llu %lld pthread_detach: Could not find thread\n",
                  (unsigned long long)uTid, (long long)gTid));
     return ESRCH;
   }
@@ -512,7 +548,7 @@ int ThreadPool::pthread_detach(pthread_t thread) {
   int rc = threadInfo->setDetached(uTid);
   if (rc) {
     // Detach for a thread that completed just after we detached.
-    DP(1, printf("  %llu %lld pthread_detach: Thread competed already.\n",
+    KA_TRACE(1, ("  %llu %lld pthread_detach: Thread competed already.\n",
                  (unsigned long long)uTid, (long long)gTid));
     return ESRCH;
   }
@@ -529,34 +565,34 @@ int ThreadPool::pthread_join(pthread_t thread, void **value_ptr) {
   int64_t gTid = WorkerThreadInfo::getGlobalTid(uTid);
   if (!validGlobalTid(gTid)) {
     // Corrupted thread parameter., could not find the corresponding info.
-    DP(1, printf("  %llu %lld pthread_join: Could not find thread\n",
+    KA_TRACE(1, ("  %llu %lld pthread_join: Could not find thread\n",
                  (unsigned long long)uTid, (long long)gTid));
     return ESRCH;
   }
   if (uTid == threadSpecificUniqueTid) {
     // A deadlock was detected or the value of thread specifies the calling
     // thread.
-    DP(1, printf("  %llu %lld pthread_join: Calling join on self\n",
+    KA_TRACE(1, ("  %llu %lld pthread_join: Calling join on self\n",
                  (unsigned long long)uTid, (long long)gTid));
     return EDEADLK;
   }
 
   // Wait for the worker thread to complete the task.
-  DP(3, printf("  %llu %lld pthread_join: joining with pthread_t %llu\n",
-               (unsigned long long)uTid, (long long)gTid,
-               (unsigned long long)uTid));
+  KA_TRACE(10, ("  %llu %lld pthread_join: joining with pthread_t %llu\n",
+                (unsigned long long)uTid, (long long)gTid,
+                (unsigned long long)uTid));
   bool hasValue = pool[gTid].waitInJoin(uTid, value_ptr);
   if (!hasValue) {
     // Thread completed the work but did not leave a value_ptr, thus signaling
     // that this was not a joinable thread. Or that the thread was already
     // joined once and thus the map entry was already removed.
-    DP(1, printf("  %llu %lld pthread_join: No return value\n",
+    KA_TRACE(1, ("  %llu %lld pthread_join: No return value\n",
                  (unsigned long long)uTid, (long long)gTid));
     return EINVAL;
   }
-  DP(3, printf("  %llu %lld pthread_join: joined with pthread_t %lld\n",
-               (unsigned long long)uTid, (long long)gTid,
-               (unsigned long long)uTid));
+  KA_TRACE(10, ("  %llu %lld pthread_join: joined with pthread_t %lld\n",
+                (unsigned long long)uTid, (long long)gTid,
+                (unsigned long long)uTid));
   // Success.
   return 0;
 }
@@ -572,17 +608,17 @@ int64_t ThreadPool::getMaxThreadPoolSize() { return maxPoolSize; }
 // Method used by the worker loop to indicate the completion of a routine.
 void ThreadPool::callRoutineAndCleanup(WorkerThreadInfo *threadInfo) {
   // Call routine.
-  DP(3, printf("  %llu %lld call&cleanup: Call 0x%llx with pthread %llu\n",
-               (unsigned long long)threadInfo->getUniqueThreadId(),
-               (long long)threadInfo->getGlobalThreadId(),
-               (unsigned long long)threadInfo->getRoutine(),
-               (unsigned long long)threadInfo->getUniqueThreadId()));
+  KA_TRACE(10, ("  %llu %lld call&cleanup: Call 0x%llx with pthread %llu\n",
+                (unsigned long long)threadInfo->getUniqueThreadId(),
+                (long long)threadInfo->getGlobalThreadId(),
+                (unsigned long long)threadInfo->getRoutine(),
+                (unsigned long long)threadInfo->getUniqueThreadId()));
   void *value_ptr = threadInfo->callRoutine();
-  DP(3, printf("  %llu %lld call&cleanup: Return 0x%llx with value %lld\n",
-               (unsigned long long)threadInfo->getUniqueThreadId(),
-               (long long)threadInfo->getGlobalThreadId(),
-               (unsigned long long)threadInfo->getRoutine(),
-               (long long)value_ptr));
+  KA_TRACE(10, ("  %llu %lld call&cleanup: Return 0x%llx with value %lld\n",
+                (unsigned long long)threadInfo->getUniqueThreadId(),
+                (long long)threadInfo->getGlobalThreadId(),
+                (unsigned long long)threadInfo->getRoutine(),
+                (long long)value_ptr));
 
   // Capture return value if not detached. Wakeup the thread performing a
   // join, if one is waiting.  Still perform this operation for detached (aka
@@ -669,17 +705,17 @@ static void getThreadLimit(int &threadLimit, const char *envVarName) {
       kmp_uint64 value;
       __kmp_str_to_uint(envVarValue, &value, &msg);
       if (msg == nullptr) {
-        DP(2, printf("Get pool size from env %s = %lld\n", envVarName, value));
+        KA_TRACE(5, ("Get pool size from env %s = %lld\n", envVarName, value));
         threadLimit = value;
       } else {
-        DP(1, printf("Invalid pool size from env %s: %s\n", envVarName,
+        KA_TRACE(1, ("Invalid pool size from env %s: %s\n", envVarName,
                      envVarValue));
       }
     } else {
-      DP(2, printf("Environment variable %s not set.\n", envVarName));
+      KA_TRACE(5, ("Environment variable %s not set.\n", envVarName));
     }
   } else {
-    DP(1, printf("Get pool size argument: %d\n", threadLimit));
+    KA_TRACE(1, ("Get pool size argument: %d\n", threadLimit));
   }
 }
 
@@ -690,7 +726,7 @@ static void setThreadLimit(int threadLimit, const char *envVarName) {
   char varStr[20];
   snprintf(varStr, sizeof(varStr), "%d", threadLimit);
   __kmp_env_set(envVarName, varStr, 1);
-  DP(2, printf("Set env var %s to %d\n", envVarName, threadLimit));
+  KA_TRACE(5, ("Set env var %s to %d\n", envVarName, threadLimit));
 }
 
 // Init protected by a mutex (when we actually have to do the init).
