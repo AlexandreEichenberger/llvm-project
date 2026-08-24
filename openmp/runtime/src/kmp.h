@@ -595,6 +595,7 @@ typedef int PACKED_REDUCTION_METHOD_T;
 #if !KMP_OS_WASI
 #include <dlfcn.h>
 #endif
+// hi alex: added this include here to interpose pool pthreads.
 #include "kmp_pthread.h"
 #endif
 

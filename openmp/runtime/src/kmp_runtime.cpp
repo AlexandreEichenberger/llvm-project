@@ -7073,7 +7073,7 @@ static void __kmp_do_serial_initialize(void) {
 #if KMP_USE_POOL_PTHREAD
   const char *ompEnvVar = "OMP_THREAD_LIMIT";
   pool_pthread_create_all_workers(0 /*default to max*/, ompEnvVar);
-  pool_pthread_wait_until_fully_populated();
+  pool_pthread_wait_until_fully_populated(0 /*default to max*/, ompEnvVar);
 #endif
 
   __kmp_validate_locks();

@@ -42,8 +42,19 @@ extern void *threadExitLoop(void *t) { return nullptr; };
 #define memoryFence() std::atomic_thread_fence(std::memory_order_seq_cst)
 
 template <typename KEY, typename VALUE, int N, KEY EMPTY>
-SimpleMap<KEY, VALUE, N, EMPTY>::SimpleMap()
-    : size(N), keys(&localKeys[0]), values(&localValues[0]) {
+SimpleMap<KEY, VALUE, N, EMPTY>::SimpleMap() {
+  init();
+}
+
+// Establish size/keys/values, then empty the map. Kept separate from the
+// constructor because the enclosing ThreadPool is allocated with malloc: no
+// constructor runs for it, so this is what makes the map usable. Must only be
+// called on a fresh map, as it drops (rather than frees) any grown arrays.
+template <typename KEY, typename VALUE, int N, KEY EMPTY>
+void SimpleMap<KEY, VALUE, N, EMPTY>::init() {
+  size = N;
+  keys = &localKeys[0];
+  values = &localValues[0];
   clear();
 }
 
@@ -150,7 +161,8 @@ void WorkerThreadInfo::init(int64_t gTid) {
   pthread_cond_init(&conditionForJoin, nullptr);
   pthread_mutex_init(&mutexForWorkerLoop, nullptr);
   pthread_cond_init(&conditionForWorkerLoop, nullptr);
-  uniqueTidToRoutineReturnValueMap.clear();
+  // init() because the structure may have been allocated with malloc only.
+  uniqueTidToRoutineReturnValueMap.init();
   nativeThread = (pthread_t)0;
 }
 
@@ -424,6 +436,7 @@ void ThreadPool::init(int64_t n) {
   poolSize.store(0ll);
   threadBusyStatus.store(0ull);
   availableThreadNum.store(0ll);
+  allWorkersRegistered.store(false);
   // No need for memory fence as default atomic store use full consistency.
 }
 
@@ -451,7 +464,32 @@ int ThreadPool::enterThreadPool() {
   pthread_t nativeThread = ::pthread_self(); // from pthread.h library.
   threadInfo->setNativeThread(nativeThread);
   memoryFence();
-  incrementNumberOfAvailableThreads();
+  // This thread's slot is now published, so this thread is registered. The
+  // count returned here is the number of registered workers: nothing decrements
+  // availableThreadNum until work is dispatched, and no work can be dispatched
+  // before the pool is fully populated (asserted in setThreadAvailable).
+  int64_t registered = incrementNumberOfAvailableThreads();
+  // Compare against maxPoolSize, as all maxPoolSize slots are filled by worker
+  // threads: the master registers in neither mode, it only either creates the
+  // workers (create_all_workers) or waits for them to volunteer.
+  //
+  // TODO: the pool is sized from OMP_THREAD_LIMIT with no -1 adjustment, while
+  // libomp counts the master towards that limit, so libomp consumes only
+  // maxPoolSize-1 of the workers and one stays permanently parked. See
+  // astudy/analysis/lomp-standard.md section 4: fixing that is a decision about
+  // what the limit means, not about this test, which keys off the number of
+  // slots and so stays correct however the sizing is resolved.
+  if (registered == maxPoolSize) {
+    // Last worker to register, so the pool is now fully populated: release
+    // whoever waits in pool_pthread_wait_until_fully_populated. The fence keeps
+    // this thread's registration writes above from being reordered after the
+    // store; the registration writes of every *other* worker are covered by the
+    // chain of read-modify-writes on availableThreadNum ending at the increment
+    // above. This test fires exactly once, as any further thread entering the
+    // pool is rejected as full before reaching here.
+    memoryFence();
+    allWorkersRegistered.store(true);
+  }
   // Start waiting for tasks to be executed.
   KA_TRACE(10, ("  %lld enterThreadPool: start work loop\n", (long long)gTid));
   while (true) {
@@ -601,6 +639,9 @@ int ThreadPool::pthread_join(pthread_t thread, void **value_ptr) {
 // at anytime up (or possibly down).
 int64_t ThreadPool::getThreadPoolSize() { return poolSize.load(); }
 int64_t ThreadPool::getMaxThreadPoolSize() { return maxPoolSize; }
+bool ThreadPool::areAllWorkersRegistered() {
+  return allWorkersRegistered.load();
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // Support function for the worker loop function.
@@ -645,6 +686,12 @@ bool ThreadPool::hasThreadFlippedToBusy(int64_t gTid) {
 
 // Flip the bit associated with gTid back to zero.
 void ThreadPool::setThreadAvailable(int64_t gTid) {
+  // This is the completion path of a dispatched routine, and nothing can be
+  // dispatched before the pool is fully populated. enterThreadPool relies on
+  // that to read availableThreadNum as a count of registered workers, so check
+  // it here rather than leave it as an unstated assumption.
+  assert(allWorkersRegistered.load() &&
+         "work completed before the pool was fully populated");
   // Increment threads available before flipping the bits.
   incrementNumberOfAvailableThreads();
   // Fip bit to zero.
@@ -658,10 +705,11 @@ int64_t ThreadPool::getNumberOfAvailableThreads() {
   return availableThreadNum.load();
 }
 
-void ThreadPool::incrementNumberOfAvailableThreads() {
+int64_t ThreadPool::incrementNumberOfAvailableThreads() {
   // Use release consistency here because this protect stores above the call.
   int64_t newNum = availableThreadNum.fetch_add(1ll) + 1;
   assert(newNum <= poolSize.load() && "should be larger than pool size");
+  return newNum;
 }
 
 void ThreadPool::decrementNumberOfAvailableThreads() {
@@ -740,17 +788,32 @@ bool init(int threadLimit, const char *envVarName) {
   int rc = pthread_mutex_lock(&mutexThreadPoolInit);
   assert(!rc && "failed to acquire worker loop lock");
   if (!threadPool) {
-    // Still not initialized, now initialize inside the lock.
+    newInit = true;
+    // Still not initialized, now initialize inside the lock. Build the pool
+    // through a local, as threadPool is the variable that publishes it: the
+    // fast path above reads threadPool without holding this mutex, so
+    // threadPool must not become non-null before the pool is fully built.
     getThreadLimit(threadLimit, envVarName);
-    threadPool = (ThreadPool *)malloc(sizeof(ThreadPool));
-    threadPool->init(threadLimit);
-    assert(threadPool && "failed to allocate thread pool");
-    int actualLimit = threadPool->getMaxThreadPoolSize();
+    ThreadPool *localThreadPool = (ThreadPool *)malloc(sizeof(ThreadPool));
+    assert(localThreadPool && "failed to allocate thread pool");
+    localThreadPool->init(threadLimit);
+    int actualLimit = localThreadPool->getMaxThreadPoolSize();
     if (envVarName) // Has to set it because that is how OMP looks at it.
       setThreadLimit(actualLimit, envVarName);
     printf("Use thread pool of size %d\n", actualLimit);
     fflush(stdout);
-    newInit = true;
+    // Publish the fully built pool. The fence keeps every write above from
+    // being reordered after the store below, so a thread that observes
+    // threadPool non-null necessarily observes a fully built pool. The store
+    // needs no atomic: it is a single aligned pointer-sized store, so no reader
+    // can observe a torn value. Readers need no fence of their own either, but
+    // only because they reach the pool's data exclusively through this pointer,
+    // i.e. with an address dependency on this store. Reading pool state by a
+    // route not derived from a load of threadPool, or spinning on threadPool
+    // itself (a plain load, which the compiler may hoist out of the loop),
+    // would need explicit acquire semantics instead.
+    memoryFence();
+    threadPool = localThreadPool;
   }
   rc = pthread_mutex_unlock(&mutexThreadPoolInit);
   assert(!rc && "failed to release worker loop lock");
@@ -786,10 +849,25 @@ extern "C" int pool_pthread_create_all_workers(int thread_limit,
   return thread_limit;
 }
 
-extern "C" int pool_pthread_wait_until_fully_populated() {
-  // At this time, use busy waiting.
-  while (threadPool /* is initialized */ &&
-         threadPool->getThreadPoolSize() < threadPool->getMaxThreadPoolSize()) {
+extern "C" int pool_pthread_wait_until_fully_populated(int thread_limit,
+                                                       const char *env_var) {
+  // Initialize the pool rather than assume someone else already did. In the
+  // donation mode, where workers volunteer themselves through
+  // pool_pthread_become_worker, this thread may well get here before any
+  // volunteer has arrived, so there may be no pool to wait on yet. Whether we
+  // win this init or a volunteer already did, threadPool is non-null and fully
+  // built when init() returns, so waiting below is safe and the pool size is
+  // known.
+  init(thread_limit, env_var);
+  assert(threadPool && "expected an initialized thread pool");
+  // At this time, use busy waiting. Wait on the "all workers registered" flag
+  // and not on the pool size: poolSize is incremented on entry to
+  // enterThreadPool, before a worker publishes its slot, so it reaching
+  // maxPoolSize would let this thread proceed while the last slot is still
+  // unusable (its nativeThread unset, and its bit in threadBusyStatus reading
+  // as available). Note that if fewer workers than the pool size ever register
+  // this waits forever, exactly as the size comparison did.
+  while (!threadPool->areAllWorkersRegistered()) {
     // Busy waiting, could update to something else.
     // hi alex std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }

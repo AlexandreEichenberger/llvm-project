@@ -70,9 +70,17 @@ extern void pool_pthread_become_worker(int thread_limit, const char *env_var);
 // thread pool size. Return the number of threads in the pool.
 extern int pool_pthread_create_all_workers(int thread_limit,
                                            const char *env_var);
-// Wait until the thread pool is initialized and fully populated. Return the
-// number of threads in the pool.
-extern int pool_pthread_wait_until_fully_populated();
+// Initialize the thread pool, then wait until it is fully populated by worker
+// threads that volunteered through pool_pthread_become_worker. The maximum
+// thread pool size is determined by the provided thread_limit (when non-zero)
+// and otherwise by the provided env_var, subject to implementation limitations.
+// When an env_var is provided, it will be set to the maximum thread pool size.
+// Return the number of threads in the pool. The pool is initialized here (and
+// not assumed to exist) because this may run before any worker has volunteered;
+// whichever of the two arrives first initializes the pool and thereby fixes its
+// size, so all callers are expected to pass consistent arguments.
+extern int pool_pthread_wait_until_fully_populated(int thread_limit,
+                                                  const char *env_var);
 
 // Pthread interface implemented (working),
 extern int pool_pthread_create(pthread_t *thread, const pthread_attr_t *attr,
