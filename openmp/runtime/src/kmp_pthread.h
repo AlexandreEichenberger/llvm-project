@@ -57,28 +57,60 @@ extern "C" pthread_t getPoolNativeThread(pthread_t thread);
 
 extern "C" {
 
-// Current thread becomes a worker thread in the thread pool after initializing
-// it. The maximum thread pool size is determined by the provided thread_limit
-// (when non-zero) and otherwise by the provided env_var, subject to
-// implementation limitations. When an env_var is provided, it will be set to
-// the maximum thread pool size.
+/////////////////////////////////////////////////////////////////////////////////
+// Pool creation and sizing (applies to the three entry points below)
+//
+// The next three functions each take a (thread_limit, env_var) pair and each
+// implicitly initialize the pool, because none of them can assume it already
+// exists: a worker may volunteer before the runtime initializes, and the runtime
+// may initialize before any worker volunteers. There is exactly one pool per
+// process and it is created at most once.
+//
+// WHO SETS THE SIZE. The first caller to enter the initialization critical
+// section and find the pool absent creates it, and *that* caller's arguments
+// alone determine the size, using the first of:
+// o thread_limit, when it is greater than zero (env_var is then not consulted);
+// o the value of env_var, when one is provided and parses as a number;
+// o the implementation maximum, when neither yields a value.
+// The result is then capped at the implementation maximum, so the pool may end
+// up smaller than requested. This is why the two functions that return a value
+// return the *actual* size: it is the only reliable way to learn it.
+//
+// THE SIZE IS THEN FIXED FOREVER. It is written once, while the creating caller
+// holds the lock, and no code path ever changes it afterwards. It survives for
+// the life of the process, across any number of subsequent calls.
+//
+// WHAT HAPPENS TO LATER CALLERS' ARGUMENTS. They are ignored, in the strict
+// sense that they are never even read: once the pool exists, every one of these
+// functions returns from a fast path that precedes any use of thread_limit or
+// env_var. Passing values that disagree with the pool's actual size is therefore
+// harmless to the pool itself -- no re-initialization, no reallocation, no race,
+// and nothing leaked -- and a caller that wants a different size simply does not
+// get one, silently. Note however:
+// o env_var is written back with the actual size only by the creating caller,
+//   and only if that caller supplied one. If the pool is created by a caller
+//   that passed nullptr, the environment is left alone and libomp will size its
+//   teams from whatever it already said, which need not match the pool.
+// o Nothing diagnoses a disagreement. A caller that cares must compare the
+//   returned size against what it asked for.
+/////////////////////////////////////////////////////////////////////////////////
+
+// Current thread becomes a worker thread in the thread pool, initializing the
+// pool first if it does not exist yet (see above for sizing). Does not return
+// while this thread remains a pool worker.
 extern void pool_pthread_become_worker(int thread_limit, const char *env_var);
-// Initialize thread pool and fully populate the pool of worker threads. The
-// maximum thread pool size is determined by the provided thread_limit (when
-// non-zero) and otherwise by the provided env_var, subject to implementation
-// limitations. When an env_var is provided, it will be set to the maximum
-// thread pool size. Return the number of threads in the pool.
+// Initialize the thread pool (see above for sizing) and populate it by creating
+// all of its worker threads here. Return the actual number of threads in the
+// pool. Note that the worker threads are created only when this call is the one
+// that created the pool: a caller that finds the pool already populated by
+// volunteers creates nothing.
 extern int pool_pthread_create_all_workers(int thread_limit,
                                            const char *env_var);
-// Initialize the thread pool, then wait until it is fully populated by worker
-// threads that volunteered through pool_pthread_become_worker. The maximum
-// thread pool size is determined by the provided thread_limit (when non-zero)
-// and otherwise by the provided env_var, subject to implementation limitations.
-// When an env_var is provided, it will be set to the maximum thread pool size.
-// Return the number of threads in the pool. The pool is initialized here (and
-// not assumed to exist) because this may run before any worker has volunteered;
-// whichever of the two arrives first initializes the pool and thereby fixes its
-// size, so all callers are expected to pass consistent arguments.
+// Initialize the thread pool (see above for sizing), then wait until every one
+// of its worker threads has registered, whether they were created by
+// pool_pthread_create_all_workers or volunteered through
+// pool_pthread_become_worker. Return the actual number of threads in the pool.
+// Waits forever if fewer workers than that ever register.
 extern int pool_pthread_wait_until_fully_populated(int thread_limit,
                                                   const char *env_var);
 

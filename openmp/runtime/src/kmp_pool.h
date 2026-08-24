@@ -54,13 +54,6 @@ using WorkerThreadPthreadType = uint64_t;
 // bitvector to indicate the available/busy status of each thread in the pool.
 #define MAX_POOL_SIZE 64ll
 
-// Cache line size in bytes, used to keep variables that are spun on away from
-// variables that are written, so that the spinning does not sit in the middle of
-// the writers' coherence traffic. Matches CACHE_LINE in kmp_os.h, which this
-// header purposely does not include; 128 also covers targets whose lines are 64
-// bytes, as a 64-byte line is then contained in the padded range either way.
-#define POOL_CACHE_LINE_SIZE 128
-
 // Global thread id are in the range [0..MAX_POOL_SIZE) at most; undefined
 // value is set to -1
 #define GLOBAL_TID_UNDEF -1ll
@@ -303,40 +296,23 @@ private:
   // Read: In pthread_create to determine if threads are available (multiple
   //   threads).
   //
-  // While the pool is being populated, this doubles as the count of workers
-  // that have completed their registration: enterThreadPool increments it right
-  // after publishing the worker's slot, and nothing decrements it until work is
-  // dispatched, which cannot happen before the pool is fully populated. That is
-  // what lets the last registering worker recognize itself, and it is checked by
-  // an assert in setThreadAvailable rather than merely assumed.
+  // While the pool is being populated, this doubles as the count of workers that
+  // have completed their registration: enterThreadPool increments it right after
+  // publishing the worker's slot, and nothing decrements it until work is
+  // dispatched, which cannot happen before the pool is fully populated (checked
+  // by an assert in setThreadAvailable). That is what lets the last registering
+  // worker recognize itself.
   std::atomic_int64_t availableThreadNum; /* init 0 */
 
   // Set to true by the last worker thread to complete its registration, and
   // never reset. A thread that observes it true is guaranteed that every slot in
-  // pool[] is published: the increments of availableThreadNum form a chain of
-  // read-modify-write operations, so the last worker's increment carries every
-  // earlier worker's registration writes, which are in turn ordered before this
-  // flag is set. Note that poolSize cannot serve this purpose, as it is
+  // pool[] is published. Note that poolSize cannot serve this purpose, as it is
   // incremented on *entry* to enterThreadPool, before the slot is published.
-  //
-  // Kept on a cache line of its own, between two pads. A thread waiting for the
-  // pool to be populated spins on this flag while every worker is writing
-  // availableThreadNum and its own pool[] slot; were the flag to share a line
-  // with any of those, each of those writes would invalidate the waiter's copy,
-  // and the spin would slow down the very registrations it is waiting for. As
-  // written, the line stays valid in the waiter's cache and is invalidated
-  // exactly once, when the flag is finally set. Note that
-  // alignas(POOL_CACHE_LINE_SIZE) would not achieve this here: the pool is
-  // allocated with malloc, which honors only fundamental alignment, so the
-  // member's offset would be aligned within the struct while the struct's own
-  // address is not. Padding on both sides holds regardless of that address.
   //
   // Init: false in init() (once by a single thread).
   // Write: In enterThreadPool, once, by the last worker to register.
   // Read: In areAllWorkersRegistered, by a thread waiting for the pool.
-  [[maybe_unused]] char padBeforeAllWorkersRegistered[POOL_CACHE_LINE_SIZE];
   std::atomic_bool allWorkersRegistered; /* init false */
-  [[maybe_unused]] char padAfterAllWorkersRegistered[POOL_CACHE_LINE_SIZE];
 
   // The actual thread pool info data structure (with one entry per thread).
   WorkerThreadInfo pool[MAX_POOL_SIZE];

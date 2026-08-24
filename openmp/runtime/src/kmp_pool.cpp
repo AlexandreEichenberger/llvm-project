@@ -464,14 +464,12 @@ int ThreadPool::enterThreadPool() {
   pthread_t nativeThread = ::pthread_self(); // from pthread.h library.
   threadInfo->setNativeThread(nativeThread);
   memoryFence();
-  // This thread's slot is now published, so this thread is registered. The
-  // count returned here is the number of registered workers: nothing decrements
-  // availableThreadNum until work is dispatched, and no work can be dispatched
-  // before the pool is fully populated (asserted in setThreadAvailable).
-  int64_t registered = incrementNumberOfAvailableThreads();
-  // Compare against maxPoolSize, as all maxPoolSize slots are filled by worker
-  // threads: the master registers in neither mode, it only either creates the
-  // workers (create_all_workers) or waits for them to volunteer.
+  // This thread's slot is now published, so this thread is registered. Until the
+  // pool is fully populated nothing decrements availableThreadNum, so the count
+  // returned here is the number of registered workers. Compare it against
+  // maxPoolSize, as all maxPoolSize slots are filled by worker threads: the
+  // master registers in neither mode, it only either creates the workers
+  // (create_all_workers) or waits for them to volunteer.
   //
   // TODO: the pool is sized from OMP_THREAD_LIMIT with no -1 adjustment, while
   // libomp counts the master towards that limit, so libomp consumes only
@@ -479,14 +477,9 @@ int ThreadPool::enterThreadPool() {
   // astudy/analysis/lomp-standard.md section 4: fixing that is a decision about
   // what the limit means, not about this test, which keys off the number of
   // slots and so stays correct however the sizing is resolved.
-  if (registered == maxPoolSize) {
+  if (incrementNumberOfAvailableThreads() == maxPoolSize) {
     // Last worker to register, so the pool is now fully populated: release
-    // whoever waits in pool_pthread_wait_until_fully_populated. The fence keeps
-    // this thread's registration writes above from being reordered after the
-    // store; the registration writes of every *other* worker are covered by the
-    // chain of read-modify-writes on availableThreadNum ending at the increment
-    // above. This test fires exactly once, as any further thread entering the
-    // pool is rejected as full before reaching here.
+    // whoever waits in pool_pthread_wait_until_fully_populated.
     memoryFence();
     allWorkersRegistered.store(true);
   }
@@ -686,10 +679,9 @@ bool ThreadPool::hasThreadFlippedToBusy(int64_t gTid) {
 
 // Flip the bit associated with gTid back to zero.
 void ThreadPool::setThreadAvailable(int64_t gTid) {
-  // This is the completion path of a dispatched routine, and nothing can be
-  // dispatched before the pool is fully populated. enterThreadPool relies on
-  // that to read availableThreadNum as a count of registered workers, so check
-  // it here rather than leave it as an unstated assumption.
+  // Completion path of a dispatched routine, so the pool must be fully populated
+  // by now. enterThreadPool relies on that to read availableThreadNum as a count
+  // of registered workers, so check it rather than leave it unstated.
   assert(allWorkersRegistered.load() &&
          "work completed before the pool was fully populated");
   // Increment threads available before flipping the bits.
@@ -860,13 +852,11 @@ extern "C" int pool_pthread_wait_until_fully_populated(int thread_limit,
   // known.
   init(thread_limit, env_var);
   assert(threadPool && "expected an initialized thread pool");
-  // At this time, use busy waiting. Wait on the "all workers registered" flag
-  // and not on the pool size: poolSize is incremented on entry to
-  // enterThreadPool, before a worker publishes its slot, so it reaching
-  // maxPoolSize would let this thread proceed while the last slot is still
-  // unusable (its nativeThread unset, and its bit in threadBusyStatus reading
-  // as available). Note that if fewer workers than the pool size ever register
-  // this waits forever, exactly as the size comparison did.
+  // At this time, use busy waiting. Wait on the "all workers registered" flag and
+  // not on the pool size: poolSize is incremented on entry to enterThreadPool,
+  // before a worker publishes its slot, so waiting on it would let this thread
+  // proceed while the last slot is still unusable. Note that if fewer workers
+  // than the pool size ever register this waits forever, as it did before.
   while (!threadPool->areAllWorkersRegistered()) {
     // Busy waiting, could update to something else.
     // hi alex std::this_thread::sleep_for(std::chrono::milliseconds(10));

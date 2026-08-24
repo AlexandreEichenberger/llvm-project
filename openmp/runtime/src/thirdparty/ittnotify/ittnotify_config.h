@@ -384,6 +384,7 @@ int pthread_mutex_destroy(pthread_mutex_t *) __attribute__((weak));
 int pthread_mutexattr_init(pthread_mutexattr_t *) __attribute__((weak));
 int pthread_mutexattr_settype(pthread_mutexattr_t *, int) __attribute__((weak));
 int pthread_mutexattr_destroy(pthread_mutexattr_t *) __attribute__((weak));
+// hi alex, changes around here.
 pthread_t pthread_self() __attribute__((weak));
 #define PTHREAD_SYMBOLS                                                        \
   (pthread_mutex_init && pthread_mutex_lock && pthread_mutex_unlock &&         \
