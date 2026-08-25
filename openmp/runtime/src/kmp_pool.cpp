@@ -425,9 +425,14 @@ WorkerThreadRoutineType WorkerThreadInfo::getRoutine() { return routine; }
 // Methods to construct and register threads into the pool.
 
 void ThreadPool::init(int64_t n) {
-  n = n > 0 ? n : MAX_POOL_SIZE; // n <= 0 defaults to max pool.
+  n = n < 0 ? MAX_POOL_SIZE : n; // negative (POOL_SIZE_DEFAULT) means max pool.
   maxPoolSize = n < MAX_POOL_SIZE ? n : MAX_POOL_SIZE; // cap at max pool.
-  assert(maxPoolSize > 0 && "assumed at least one thread for a given pool");
+  // Zero workers is a legal pool, not a mistake: it is what a thread limit of
+  // one asks for, as that limit is spent entirely on the master. Every path
+  // degrades correctly -- enterThreadPool rejects any volunteer as full,
+  // pthread_create finds nothing available, and libomp requests no worker in
+  // that configuration because it runs every region on the master alone.
+  assert(maxPoolSize >= 0 && "expected a non-negative pool size");
   assert(__alignof__(pthread_t) > 1 &&
          "Support only implementations where pthread is not byte-aligned");
   // Init pool info with its global id.
@@ -436,7 +441,11 @@ void ThreadPool::init(int64_t n) {
   poolSize.store(0ll);
   threadBusyStatus.store(0ull);
   availableThreadNum.store(0ll);
-  allWorkersRegistered.store(false);
+  // Start out true for an empty pool, as no worker will ever run the
+  // registration that sets this flag, yet every slot there is (none) is already
+  // usable. Were it left false, pool_pthread_wait_until_fully_populated would
+  // spin forever waiting for a worker that is not coming.
+  allWorkersRegistered.store(maxPoolSize == 0);
   // No need for memory fence as default atomic store use full consistency.
 }
 
@@ -469,14 +478,9 @@ int ThreadPool::enterThreadPool() {
   // returned here is the number of registered workers. Compare it against
   // maxPoolSize, as all maxPoolSize slots are filled by worker threads: the
   // master registers in neither mode, it only either creates the workers
-  // (create_all_workers) or waits for them to volunteer.
-  //
-  // TODO: the pool is sized from OMP_THREAD_LIMIT with no -1 adjustment, while
-  // libomp counts the master towards that limit, so libomp consumes only
-  // maxPoolSize-1 of the workers and one stays permanently parked. See
-  // astudy/analysis/lomp-standard.md section 4: fixing that is a decision about
-  // what the limit means, not about this test, which keys off the number of
-  // slots and so stays correct however the sizing is resolved.
+  // (create_all_workers) or waits for them to volunteer. That is also why the
+  // pool is sized at OMP_THREAD_LIMIT minus one, the master's share of the limit
+  // (see init); this test keys off the number of slots either way.
   if (incrementNumberOfAvailableThreads() == maxPoolSize) {
     // Last worker to register, so the pool is now fully populated: release
     // whoever waits in pool_pthread_wait_until_fully_populated.
@@ -522,8 +526,17 @@ int ThreadPool::pthread_create(pthread_t *thread, const pthread_attr_t *attr,
   // attempts.
   int64_t attempt = 0;
   for (; attempt < 100 && getNumberOfAvailableThreads() > 0; ++attempt) {
-    // Search for a free thread in the pool.
+    // Search for a free thread in the pool. Bound the scan by maxPoolSize and not
+    // by poolSize alone: poolSize is claimed with a fetch_add that enterThreadPool
+    // only afterwards rejects as full, so a process that donates more threads than
+    // the pool holds leaves poolSize above maxPoolSize. Slots at or past
+    // maxPoolSize were never initialized, and at MAX_POOL_SIZE would be past the
+    // end of pool[], so scanning them could hand work to a thread that does not
+    // exist. Over-donation is easy to arrive at by accident, as the pool holds one
+    // fewer thread than the thread limit it was sized from (see init).
     int64_t size = poolSize.load();
+    if (size > maxPoolSize)
+      size = maxPoolSize;
     for (int64_t gTid = 0; gTid < size; ++gTid) {
       if (hasThreadFlippedToBusy(gTid)) {
         // First set the work descriptor associated with call.
@@ -735,27 +748,33 @@ static pthread_mutex_t mutexThreadPoolInit = PTHREAD_MUTEX_INITIALIZER;
 /////////////////////////////////////////////////////////////////////////////////
 // Support
 
-// Get thread limit from provided limit, or if <= 0 from env. Call must be
-// protected by a mutex.
+// Get thread limit from provided limit, or if <= 0 from env. Note that this is a
+// thread limit and not a pool size: it counts the master, so the pool built from
+// it holds one worker fewer (see init). Leaves threadLimit <= 0 when no value can
+// be had, which init reads as "no limit was given". Call must be protected by a
+// mutex.
 static void getThreadLimit(int &threadLimit, const char *envVarName) {
   if (threadLimit <= 0 && envVarName) {
-    char *envVarValue = __kmp_env_get(envVarName);
+    char const *envVarValue = __kmp_env_get(envVarName);
     if (envVarValue != nullptr) {
       char const *msg = nullptr;
       kmp_uint64 value;
       __kmp_str_to_uint(envVarValue, &value, &msg);
       if (msg == nullptr) {
-        KA_TRACE(5, ("Get pool size from env %s = %lld\n", envVarName, value));
+        KA_TRACE(5,
+                 ("Get thread limit from env %s = %lld\n", envVarName, value));
         threadLimit = value;
       } else {
-        KA_TRACE(1, ("Invalid pool size from env %s: %s\n", envVarName,
+        KA_TRACE(1, ("Invalid thread limit from env %s: %s\n", envVarName,
                      envVarValue));
       }
+      // __kmp_env_get hands back a copy that is ours to release.
+      __kmp_env_free(&envVarValue);
     } else {
       KA_TRACE(5, ("Environment variable %s not set.\n", envVarName));
     }
   } else {
-    KA_TRACE(1, ("Get pool size argument: %d\n", threadLimit));
+    KA_TRACE(1, ("Get thread limit argument: %d\n", threadLimit));
   }
 }
 
@@ -788,11 +807,31 @@ bool init(int threadLimit, const char *envVarName) {
     getThreadLimit(threadLimit, envVarName);
     ThreadPool *localThreadPool = (ThreadPool *)malloc(sizeof(ThreadPool));
     assert(localThreadPool && "failed to allocate thread pool");
-    localThreadPool->init(threadLimit);
-    int actualLimit = localThreadPool->getMaxThreadPoolSize();
+    // The pool is one smaller than the thread limit, because the limit counts
+    // the master and the pool holds only workers. libomp counts the master
+    // towards OMP_THREAD_LIMIT: it initializes the thread count of the master's
+    // contention group to one for the master alone and enforces
+    // cg_nthreads + team_size <= cg_thread_limit, where team_size includes the
+    // master too (kmp_runtime.cpp, __kmp_reserve_threads). The master meanwhile
+    // registers in neither mode, it only creates the workers or waits for them to
+    // volunteer. So a limit of N is exactly a master plus N-1 pool workers, and
+    // sizing the pool at N would leave one worker parked for the whole run. A
+    // limit we never learned (threadLimit <= 0) carries no N to subtract from, so
+    // ask for the implementation maximum instead.
+    localThreadPool->init(threadLimit > 0 ? threadLimit - 1 : POOL_SIZE_DEFAULT);
+    int actualWorkers = localThreadPool->getMaxThreadPoolSize();
+    // Publish the limit rather than the pool size, and derive it from the workers
+    // we actually got rather than from what we asked for: init caps at
+    // MAX_POOL_SIZE, so a larger request silently yields fewer workers, and
+    // libomp has to be told the smaller number or it would form teams the pool
+    // cannot staff. The +1 restores the master, i.e. the same convention the
+    // value was read under, so that reading the variable back yields what we set.
     if (envVarName) // Has to set it because that is how OMP looks at it.
-      setThreadLimit(actualLimit, envVarName);
-    printf("Use thread pool of size %d\n", actualLimit);
+      setThreadLimit(actualWorkers + 1, envVarName);
+    // Lead with the limit, the number everything outside this file speaks in; the
+    // worker count is the internal half of the same statement.
+    printf("Use thread pool with thread limit %d (%d workers plus the master)\n",
+           actualWorkers + 1, actualWorkers);
     fflush(stdout);
     // Publish the fully built pool. The fence keeps every write above from
     // being reordered after the store below, so a thread that observes
@@ -820,25 +859,33 @@ static void *registerWorker(void *t) {
 /////////////////////////////////////////////////////////////////////////////////
 // Exported functions: initialization of pool.
 
-extern "C" void pool_pthread_become_worker(int thread_limit,
+extern "C" bool pool_pthread_become_worker(int thread_limit,
                                            const char *env_var) {
   init(thread_limit, env_var);
-  threadPool->enterThreadPool();
+  // Anything but success means the pool had no room for this thread, so say so
+  // rather than return as if it had served: the caller is the only party that can
+  // tell an intentional surplus from one thread too many. enterThreadPool has
+  // already traced the rejection.
+  return threadPool->enterThreadPool() == 0;
 }
 
 extern "C" int pool_pthread_create_all_workers(int thread_limit,
                                                const char *env_var) {
   bool newInit = init(thread_limit, env_var);
-  thread_limit = threadPool->getMaxThreadPoolSize();
+  // Workers, not the thread limit: the pool holds one fewer thread than the limit
+  // and this loop creates the pool's threads, not the master.
+  int numWorkers = threadPool->getMaxThreadPoolSize();
   if (newInit) {
     // Create the actual pthread and register them to the pool.
-    for (int64_t i = 0; i < thread_limit; ++i) {
+    for (int64_t i = 0; i < numWorkers; ++i) {
       pthread_t thread;
       int rc = pthread_create(&thread, nullptr, registerWorker, (void *)i);
       assert(!rc && "Pthread pool creation failure");
     }
   }
-  return thread_limit;
+  // Report a thread limit, as the pool size is ours alone to know: add back the
+  // master that the pool does not hold.
+  return numWorkers + 1;
 }
 
 extern "C" int pool_pthread_wait_until_fully_populated(int thread_limit,
@@ -861,7 +908,9 @@ extern "C" int pool_pthread_wait_until_fully_populated(int thread_limit,
     // Busy waiting, could update to something else.
     // hi alex std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
-  return threadPool->getMaxThreadPoolSize();
+  // Report a thread limit, as the pool size is ours alone to know: add back the
+  // master that the pool does not hold.
+  return threadPool->getMaxThreadPoolSize() + 1;
 }
 
 /////////////////////////////////////////////////////////////////////////////////

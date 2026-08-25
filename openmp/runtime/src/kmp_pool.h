@@ -54,6 +54,12 @@ using WorkerThreadPthreadType = uint64_t;
 // bitvector to indicate the available/busy status of each thread in the pool.
 #define MAX_POOL_SIZE 64ll
 
+// Passed to ThreadPool::init to ask for the implementation maximum instead of a
+// specific worker count. It must be negative, because zero is itself a
+// meaningful worker count -- a thread limit of one leaves no room for a worker --
+// and so cannot double as "unspecified".
+#define POOL_SIZE_DEFAULT (-1ll)
+
 // Global thread id are in the range [0..MAX_POOL_SIZE) at most; undefined
 // value is set to -1
 #define GLOBAL_TID_UNDEF -1ll
@@ -215,8 +221,14 @@ private:
 /////////////////////////////////////////////////////////////////////////////////
 
 struct ThreadPool {
-  ThreadPool(int64_t n = 0 /* <=0 default to MAX_POOL_SIZE */) { init(n); }
-  void init(int64_t n = 0 /* <=0 default to MAX_POOL_SIZE */);
+  ThreadPool(int64_t n = POOL_SIZE_DEFAULT) { init(n); }
+  // Size the pool to hold n worker threads, capped at MAX_POOL_SIZE; a negative
+  // n (POOL_SIZE_DEFAULT) asks for that maximum. n counts workers only, as the
+  // master never registers in the pool, so it is one less than the OpenMP thread
+  // limit the pool was derived from. n == 0 is therefore legal and fully
+  // functional: the pool accepts no worker and dispatches no work, which is what
+  // a thread limit of one asks for.
+  void init(int64_t n = POOL_SIZE_DEFAULT);
 
   // Registering a thread into the pool, get current pool size.
   int enterThreadPool();
