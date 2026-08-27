@@ -21,6 +21,10 @@ An `early (2015) design document
 for the LLVM/OpenMP host runtime, aka.  `libomp.so`, is available as a `pdf
 <https://raw.githubusercontent.com/llvm/llvm-project/main/openmp/runtime/doc/Reference.pdf>`_.
 
+The host runtime can optionally be built to take its worker threads from the
+application instead of creating them, for hosts where thread creation is
+restricted; see :ref:`donated_threads`.
+
 .. _libomp_environment_vars:
 
 Environment Variables

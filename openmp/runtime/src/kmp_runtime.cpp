@@ -13,6 +13,7 @@
 #include "kmp.h"
 #include "kmp_affinity.h"
 #include "kmp_atomic.h"
+#include "kmp_donated_threads.h"
 #include "kmp_environment.h"
 #include "kmp_error.h"
 #include "kmp_i18n.h"
@@ -2073,6 +2074,13 @@ int __kmp_fork_call(ident_t *loc, int gtid,
       nthreads = task_thread_limit > 0 && task_thread_limit < nthreads
                      ? task_thread_limit
                      : nthreads;
+#if KMP_USE_DONATED_THREADS
+      // Settle this generation's thread budget before the limits below are
+      // consulted, and before __kmp_forkjoin_lock is taken so that nothing is
+      // held while waiting for the application to finish donating. Returns
+      // immediately on every fork but the first of a generation.
+      __kmp_donated_initialize(nthreads);
+#endif
       // Check if we need to take forkjoin lock? (no need for serialized
       // parallel out of teams construct).
       if (nthreads > 1) {
@@ -6308,6 +6316,14 @@ static void __kmp_internal_end(void) {
   KMP_MB(); /* Flush all pending memory write invalidates.  */
   TCW_SYNC_4(__kmp_global.g.g_done, TRUE);
 
+#if KMP_USE_DONATED_THREADS
+  // Shutting down: no further donations are taken, and the donated threads go
+  // back to the application as they leave __kmp_launch_worker(). Said here
+  // because this is on every teardown route and under __kmp_initz_lock, so the
+  // next generation cannot start without seeing it.
+  __kmp_donated_disable();
+#endif
+
   if (i < __kmp_threads_capacity) {
 #if KMP_USE_MONITOR
     // 2009-09-08 (lev): Other alive roots found. Why do we kill the monitor??
@@ -6466,6 +6482,16 @@ void __kmp_internal_end_library(int gtid_req) {
       if (__kmp_root[gtid]->r.r_active) {
         __kmp_global.g.g_abort = -1;
         TCW_SYNC_4(__kmp_global.g.g_done, TRUE);
+#if KMP_USE_DONATED_THREADS
+        // This route sets g_done and bails without reaching
+        // __kmp_internal_end(), and g_abort makes every later
+        // __kmp_internal_end_*() return at its top, so this is the last chance
+        // to give the donated threads back. Without it a donor the runtime never
+        // assigned stays parked for the life of the process: the backstop in
+        // kmp_donate_thread() only runs on a donor that was assigned and has
+        // returned. No lock is held here, which is all this needs.
+        __kmp_donated_disable();
+#endif
         __kmp_unregister_library();
         KA_TRACE(10,
                  ("__kmp_internal_end_library: root still active, abort T#%d\n",
@@ -6591,6 +6617,12 @@ void __kmp_internal_end_thread(int gtid_req) {
       if (__kmp_root[gtid]->r.r_active) {
         __kmp_global.g.g_abort = -1;
         TCW_SYNC_4(__kmp_global.g.g_done, TRUE);
+#if KMP_USE_DONATED_THREADS
+        // As in __kmp_internal_end_library() above: the last chance to give the
+        // donated threads back, since this route never reaches
+        // __kmp_internal_end() and g_abort closes every later route to it.
+        __kmp_donated_disable();
+#endif
         KA_TRACE(10,
                  ("__kmp_internal_end_thread: root still active, abort T#%d\n",
                   gtid));
@@ -6604,7 +6636,14 @@ void __kmp_internal_end_thread(int gtid_req) {
       /* just a worker thread, let's leave */
       KA_TRACE(10, ("__kmp_internal_end_thread: worker thread T#%d\n", gtid));
 
-      if (gtid >= 0) {
+      // Nothing guarantees this gtid still names a live thread. We get here
+      // from the gtid key's destructor, on whatever thread happens to be
+      // exiting, and a generation boundary in between leaves the gtid stale:
+      // __kmp_cleanup() sets __kmp_threads to NULL and __kmp_threads_capacity
+      // to 0, and a following generation may be both smaller and sparser than
+      // the one this gtid was issued in.
+      if (gtid >= 0 && __kmp_threads != NULL &&
+          gtid < __kmp_threads_capacity && __kmp_threads[gtid] != NULL) {
         __kmp_threads[gtid]->th.th_task_team = NULL;
       }
 
@@ -7238,6 +7277,21 @@ static void __kmp_do_serial_initialize(void) {
 
   __kmp_env_initialize(NULL);
 
+#if KMP_USE_DONATED_THREADS
+  // Hidden helper threads need OS threads, which this configuration cannot
+  // create, so they are off regardless of what the environment asked for. Done
+  // here rather than at the definitions below because the environment has just
+  // been parsed, and before __kmp_initial_threads_capacity() below, which sizes
+  // the threads array by them. The count has to be zeroed as well as the flag:
+  // __kmp_register_root() reserves gtid slots [1, num] for them.
+  __kmp_enable_hidden_helper = FALSE;
+  __kmp_hidden_helper_threads_num = 0;
+  // Environment parsing just restored __kmp_max_nth to its declared value, so
+  // this generation's thread budget has to be settled again. The first fork
+  // does that; nothing is decided here.
+  __kmp_donated_new_generation();
+#endif
+
 #if KMP_HAVE_MWAIT || KMP_HAVE_UMWAIT
   __kmp_user_level_mwait_init();
 #endif
@@ -7259,6 +7313,18 @@ static void __kmp_do_serial_initialize(void) {
   // Moved here from __kmp_env_initialize() "KMP_ALL_THREADPRIVATE" part
   __kmp_tp_capacity = __kmp_default_tp_capacity(
       __kmp_dflt_team_nth_ub, __kmp_max_nth, __kmp_allThreadsSpecified);
+
+#if KMP_USE_DONATED_THREADS
+  // A donated thread arrives with the stack its application gave it, so there
+  // is no request to honour here. Say so once rather than never: libomp will
+  // still *report* the stack correctly, because __kmp_set_stack_info() runs on
+  // the donated thread itself, but reporting a stack is not the same as sizing
+  // one.
+  if (__kmp_env_stksize) {
+    __kmp_msg(kmp_ms_warning, KMP_MSG(DonatedThreadsStackIgnored),
+              KMP_HNT(CheckDonorStackSize), __kmp_msg_null);
+  }
+#endif
 
   // If the library is shut down properly, both pools must be NULL. Just in
   // case, set them to NULL -- some memory may leak, but subsequent code will

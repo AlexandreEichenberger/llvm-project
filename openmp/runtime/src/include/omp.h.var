@@ -271,6 +271,19 @@
     extern void   __KAI_KMPC_CONVENTION  kmp_set_defaults           (char const *);
     extern void   __KAI_KMPC_CONVENTION  kmp_set_disp_num_buffers   (int);
 
+    /* Contribute the calling thread to the OpenMP runtime, to be used as a
+       worker. Does not return until the runtime is finished with the thread,
+       which is normally when it shuts down.
+
+       Returns 0 once the thread has served as a worker. Otherwise nothing was
+       ever run on the thread and the application owns it again: EAGAIN if the
+       donation was not used -- refused because the runtime has already sized
+       itself or shut down, or accepted and later handed back because the
+       runtime never needed that many workers -- ENOMEM if no donation slot is
+       left, and ENOSYS if this build does not provision workers from donated
+       threads. */
+    extern int    __KAI_KMPC_CONVENTION  kmp_donate_thread          (void);
+
     /* Intel affinity API */
     typedef void * kmp_affinity_mask_t;
 

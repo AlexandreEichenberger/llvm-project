@@ -488,6 +488,13 @@ AffIgnoringNonHybrid         "%1$s ignored: This machine is not a hybrid archite
 AffIgnoringNotAvailable      "%1$s ignored: %2$s is not available. Using \"%3$s\" instead."
 SetNumTeamsInParOrTeamsRegion "%1$s() called inside a parallel or teams region; call ignored."
 SetTeamsThreadLimitInParOrTeamsRegion "%1$s() called inside a parallel or teams region; call ignored."
+DonatedThreadsShortfall      "OpenMP requested worker thread %1$d, but none of the %2$d donated thread(s) is parked and unused."
+DonatedThreadsTableFull      "The donated thread table is full (%1$d entries)."
+DonatedThreadNotFound        "No donated thread record was found for the worker thread being reaped."
+DonatedThreadsStackIgnored   "OMP_STACKSIZE and KMP_STACKSIZE are ignored: a donated thread runs on the stack its application gave it."
+DonatedThreadsNotAllArrived  "KMP_DEVICE_THREAD_LIMIT declares %1$d donated thread(s), but only %2$d arrived within %3$d millisecond(s); continuing with %2$d."
+DonatedThreadsNoLimit        "KMP_DEVICE_THREAD_LIMIT is not set, so OpenMP cannot wait for a known number of donated threads; continuing with the %1$d donated so far."
+DonatedThreadsDisabled       "OpenMP has shut down once and every donated thread was returned to the application; further parallel regions will run serially."
 
 # --------------------------------------------------------------------------------------------------
 -*- HINTS -*-
@@ -547,6 +554,15 @@ BadExeFormat                 "System error #193 is \"Bad format of EXE or DLL fi
 SystemLimitOnThreads         "System-related limit on the number of threads."
 SetNewBound                  "Try setting new bounds (preferably less than or equal to %1$d) for num_teams clause."
 ValidValuesRange             "Valid values are from %1$d to %2$d."
+CheckDonorStackSize          "Make sure the threads being donated have as much stack as the OpenMP regions "
+                             "need. A shortfall shows up as a crash inside OpenMP code rather than as an error."
+DonateMoreThreads            "Call kmp_donate_thread() from every thread counted by KMP_DEVICE_THREAD_LIMIT "
+                             "before the first parallel region, or lower KMP_DEVICE_THREAD_LIMIT to match the "
+                             "number of threads actually donated."
+SetDeviceThreadLimit         "Set KMP_DEVICE_THREAD_LIMIT to one more than the number of threads that will be "
+                             "donated. OpenMP then waits for them, instead of using however many happen to "
+                             "have arrived when the first parallel region is reached."
+EnlargeDonatedTable          "Rebuild the OpenMP runtime with a larger KMP_MAX_DONATED_THREADS."
 
 
 # --------------------------------------------------------------------------------------------------

@@ -32,6 +32,9 @@ class DllExports(object):
             "omp_realloc",
             "omp_aligned_alloc",
             "omp_aligned_calloc",
+            # No Fortran spelling yet; exporting one would demand a symbol the
+            # library does not define.
+            "kmp_donate_thread",
         ]
         keys = list(self.exports.keys())
         for entry in keys:

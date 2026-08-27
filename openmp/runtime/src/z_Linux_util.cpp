@@ -12,6 +12,7 @@
 
 #include "kmp.h"
 #include "kmp_affinity.h"
+#include "kmp_donated_threads.h"
 #include "kmp_i18n.h"
 #include "kmp_io.h"
 #include "kmp_itt.h"
@@ -559,7 +560,9 @@ static void *__kmp_launch_worker(void *thr) {
   __kmp_affinity_bind_init_mask(gtid);
 #endif
 
-#if KMP_CANCEL_THREADS
+  // Not enabled on a donated thread: the application owns the thread and gets
+  // it back, so the runtime must not leave asynchronous cancellation set on it.
+#if KMP_CANCEL_THREADS && !KMP_USE_DONATED_THREADS
   status = pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &old_type);
   KMP_CHECK_SYSFAIL("pthread_setcanceltype", status);
   // josh todo: isn't PTHREAD_CANCEL_ENABLE default for newly-created threads?
@@ -812,6 +815,20 @@ void __kmp_create_worker(int gtid, kmp_info_t *th, size_t stack_size) {
     __kmp_check_stack_overlap(th);
     return;
   }
+
+#if KMP_USE_DONATED_THREADS
+  // A thread the application donated by calling kmp_donate_thread() serves as
+  // this worker; no OS thread is created. ds_thread records that thread's real
+  // pthread_self(), exactly as the uber-thread branch above records the root's,
+  // so nothing downstream can tell the two apart. stack_size is ignored: the
+  // stack belongs to the application, and __kmp_launch_worker() runs
+  // __kmp_set_stack_info() on the donated thread itself, so the stack
+  // bookkeeping below still ends up correct.
+  KA_TRACE(10, ("__kmp_create_worker: acquire donated thread (%d)\n", gtid));
+  th->th.th_info.ds.ds_thread =
+      __kmp_donated_acquire_thread(th, __kmp_launch_worker);
+  return;
+#endif
 
   KA_TRACE(10, ("__kmp_create_worker: try to create thread (%d)\n", gtid));
 
@@ -1125,7 +1142,15 @@ void __kmp_reap_worker(kmp_info_t *th) {
   KA_TRACE(
       10, ("__kmp_reap_worker: try to reap T#%d\n", th->th.th_info.ds.ds_gtid));
 
+#if KMP_USE_DONATED_THREADS
+  // A donated thread belongs to the application: wait for its routine to
+  // finish, reporting what pthread_join() would have reported, but do not join
+  // the thread itself. Its slot is found by the identity of `th`, never by
+  // comparing pthread_t values.
+  status = __kmp_donated_release_thread(th, &exit_val);
+#else
   status = pthread_join(th->th.th_info.ds.ds_thread, &exit_val);
+#endif
 #ifdef KMP_DEBUG
   /* Don't expose these to the user until we understand when they trigger */
   if (status != 0) {
@@ -1294,9 +1319,19 @@ void __kmp_disable(int *old_state) {
 static void __kmp_atfork_prepare(void) {
   __kmp_acquire_bootstrap_lock(&__kmp_initz_lock);
   __kmp_acquire_bootstrap_lock(&__kmp_forkjoin_lock);
+#if KMP_USE_DONATED_THREADS
+  // Last, because the donated-thread table's lock is the innermost one in the
+  // runtime. Held over the fork for the same reason as the two above: so the
+  // child inherits it in a known state rather than possibly held by a thread
+  // that did not survive.
+  __kmp_donated_atfork_prepare();
+#endif
 }
 
 static void __kmp_atfork_parent(void) {
+#if KMP_USE_DONATED_THREADS
+  __kmp_donated_atfork_parent();
+#endif
   __kmp_release_bootstrap_lock(&__kmp_forkjoin_lock);
   __kmp_release_bootstrap_lock(&__kmp_initz_lock);
 }
@@ -1305,6 +1340,13 @@ static void __kmp_atfork_parent(void) {
    clean data structures in initial states.  Don't worry about freeing memory
    allocated by parent, just abandon it to be safe. */
 static void __kmp_atfork_child(void) {
+#if KMP_USE_DONATED_THREADS
+  // Releases the table lock this handler's counterpart took, and marks every
+  // donation unusable on the way: only the forking thread survives, so the
+  // donated-thread table names threads that no longer exist and the child
+  // serializes instead of waiting for them.
+  __kmp_donated_atfork_child();
+#endif
   __kmp_release_bootstrap_lock(&__kmp_forkjoin_lock);
   __kmp_release_bootstrap_lock(&__kmp_initz_lock);
   /* TODO make sure this is done right for nested/sibling */

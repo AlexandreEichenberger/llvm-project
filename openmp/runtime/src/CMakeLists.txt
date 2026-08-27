@@ -107,6 +107,8 @@ else()
     kmp_lock.cpp
     kmp_sched.cpp
     kmp_collapse.cpp
+    # Compiled everywhere; reduces to a stub unless KMP_USE_DONATED_THREADS
+    kmp_donated_threads.cpp
   )
   if(WIN32)
     # Windows specific files

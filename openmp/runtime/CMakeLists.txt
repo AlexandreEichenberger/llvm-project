@@ -405,6 +405,30 @@ endif()
 set(LIBOMP_USE_HIER_SCHED FALSE CACHE BOOL
   "Hierarchical scheduling support?")
 
+# Donated threads support
+# Provision workers from threads the application donates by calling
+# kmp_donate_thread(), instead of from pthread_create()
+if("${CMAKE_SYSTEM_NAME}" MATCHES "Linux|Darwin")
+  set(LIBOMP_HAVE_DONATED_THREADS TRUE)
+else()
+  set(LIBOMP_HAVE_DONATED_THREADS FALSE)
+endif()
+set(LIBOMP_USE_DONATED_THREADS FALSE CACHE BOOL
+  "Provision workers from application-donated threads instead of pthread_create()?")
+if(LIBOMP_USE_DONATED_THREADS AND (NOT LIBOMP_HAVE_DONATED_THREADS))
+  libomp_error_say("Donated threads functionality is only supported on Linux and macOS")
+endif()
+# __kmp_stats_thread_ptr is per-thread state, so a donated thread would carry the
+# runtime's copy of it back into the application and hold a pointer into a
+# kmp_stats_list that teardown frees. Rather than carry code to restore state for
+# a combination nothing asks for -- stats gathering is for tuning libomp itself,
+# not for a deployment that has to donate its threads -- the pair is refused.
+# kmp_donated_threads.cpp repeats this as an #error, for a build that defines the
+# macros by hand.
+if(LIBOMP_USE_DONATED_THREADS AND LIBOMP_STATS)
+  libomp_error_say("Donated threads and stats-gathering cannot be enabled together")
+endif()
+
 # Setting final library name
 set(LIBOMP_DEFAULT_LIB_NAME libomp)
 if(PROFILE_LIBRARY)

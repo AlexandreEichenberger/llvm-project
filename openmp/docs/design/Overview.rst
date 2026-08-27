@@ -15,4 +15,5 @@ Resources
 
    Runtimes
    Offloading
+   DonatedThreads
 

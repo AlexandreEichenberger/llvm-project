@@ -585,7 +585,6 @@ typedef int PACKED_REDUCTION_METHOD_T;
 #if !KMP_OS_WASI
 #include <dlfcn.h>
 #endif
-#include <pthread.h>
 #endif
 
 enum kmp_hw_t : int {
@@ -3446,6 +3445,12 @@ extern kmp_uint64 __kmp_pause_init;
 
 /* ------------------------------------------------------------------------- */
 extern int __kmp_allThreadsSpecified;
+// Whether __kmp_max_nth holds a value the application asked for, as opposed to
+// the system maximum it defaults to. Set by the KMP_DEVICE_THREAD_LIMIT parser,
+// which is where both that name and the deprecated KMP_ALL_THREADS arrive, from
+// the environment and from kmp_set_defaults() alike. Never cleared: it records
+// that a limit was declared, not which one won.
+extern int __kmp_max_nth_specified;
 
 extern size_t __kmp_align_alloc;
 /* following data protected by initialization routines */

@@ -588,11 +588,25 @@ static void __kmp_stg_parse_device_thread_limit(char const *name,
   if (!__kmp_strcasecmp_with_sentinel("all", value, 0)) {
     __kmp_max_nth = __kmp_xproc;
     __kmp_allThreadsSpecified = 1;
+    __kmp_max_nth_specified = 1;
   } else {
+    // Whether the value is a number at all, asked before parsing rather than
+    // after: __kmp_stg_parse_int() reports a bad value only as a warning and
+    // still writes its output, clamped, so what it leaves behind cannot say
+    // afterwards whether the application named a limit. A value out of range
+    // does count as naming one -- it is clamped and honoured -- so only the
+    // failures __kmp_str_to_uint() reports are excluded.
+    kmp_uint64 probe = 0;
+    char const *probe_error = NULL;
+    __kmp_str_to_uint(value, &probe, &probe_error);
+    if (probe_error == NULL) {
+      __kmp_max_nth_specified = 1;
+    }
     __kmp_stg_parse_int(name, value, 1, __kmp_sys_max_nth, &__kmp_max_nth);
     __kmp_allThreadsSpecified = 0;
   }
-  K_DIAG(1, ("__kmp_max_nth == %d\n", __kmp_max_nth));
+  K_DIAG(1, ("__kmp_max_nth == %d, __kmp_max_nth_specified == %d\n",
+             __kmp_max_nth, __kmp_max_nth_specified));
 
 } // __kmp_stg_parse_device_thread_limit
 

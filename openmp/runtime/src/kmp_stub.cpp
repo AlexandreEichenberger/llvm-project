@@ -141,6 +141,13 @@ void kmp_set_library(omp_int_t arg) {
 }
 void kmp_set_defaults(char const *str) { i; }
 void kmp_set_disp_num_buffers(omp_int_t arg) { i; }
+// There is no runtime here to donate a thread to, which is the same answer a
+// real runtime built without the feature gives. Reporting it uniformly is the
+// point: the declaration in omp.h does not vary by configuration.
+int kmp_donate_thread(void) {
+  i;
+  return ENOSYS;
+}
 
 /* KMP memory management functions. */
 void *kmp_malloc(size_t size) {

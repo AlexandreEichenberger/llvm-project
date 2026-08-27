@@ -1294,4 +1294,9 @@ kmp_set_disp_num_buffers                    890
 __kmpc_set_thread_limit
 __kmpc_dispatch_deinit
 
+# Exported on every platform, including those where the runtime does not
+# provision workers from donated threads: the declaration in omp.h is
+# unconditional, so a caller must get a defined ENOSYS rather than a link error.
+kmp_donate_thread
+
 # end of file #

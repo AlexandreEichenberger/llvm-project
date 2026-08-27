@@ -115,6 +115,7 @@ char const *__kmp_barrier_pattern_name[bp_last_bar] = {
     "linear", "tree", "hyper", "hierarchical", "dist"};
 
 int __kmp_allThreadsSpecified = 0;
+int __kmp_max_nth_specified = 0;
 size_t __kmp_align_alloc = CACHE_LINE;
 
 int __kmp_generate_warnings = kmp_warnings_low;
@@ -566,4 +567,3 @@ kmp_int32 __kmp_successors_size = 10; // Initial succesor size list for
 std::atomic<kmp_int32> __kmp_tdg_task_id = 0;
 #endif
 // end of file //
-
