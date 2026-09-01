@@ -149,9 +149,9 @@
 # define KMP_GOMP_COMPAT
 #endif
 
-// use shared memory with dynamic library (except Android, where shm_*
+// use shared memory with dynamic library (except Android and z/OS, where shm_*
 // functions don't exist).
-#if KMP_OS_UNIX && KMP_DYNAMIC_LIB && !__ANDROID__
+#if KMP_OS_UNIX && KMP_DYNAMIC_LIB && !__ANDROID__ && !KMP_OS_ZOS
 #define KMP_USE_SHM
 #endif
 #endif // KMP_CONFIG_H
