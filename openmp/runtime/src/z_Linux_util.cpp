@@ -794,9 +794,11 @@ static void *__kmp_launch_monitor(void *thr) {
 #endif // KMP_USE_MONITOR
 
 void __kmp_create_worker(int gtid, kmp_info_t *th, size_t stack_size) {
+#if !KMP_USE_DONATED_THREADS
   pthread_t handle;
   pthread_attr_t thread_attr;
   int status;
+#endif
 
   th->th.th_info.ds.ds_gtid = gtid;
 
@@ -839,7 +841,7 @@ void __kmp_create_worker(int gtid, kmp_info_t *th, size_t stack_size) {
   th->th.th_info.ds.ds_thread =
       __kmp_donated_acquire_thread(th, __kmp_launch_worker);
   return;
-#endif
+#else
 
   KA_TRACE(10, ("__kmp_create_worker: try to create thread (%d)\n", gtid));
 
@@ -941,6 +943,8 @@ void __kmp_create_worker(int gtid, kmp_info_t *th, size_t stack_size) {
   KMP_MB(); /* Flush all pending memory write invalidates.  */
 
   KA_TRACE(10, ("__kmp_create_worker: done creating thread (%d)\n", gtid));
+
+#endif // KMP_USE_DONATED_THREADS
 
 } // __kmp_create_worker
 
@@ -1905,7 +1909,9 @@ int __kmp_read_system_info(struct kmp_sys_info *info) {
   status = getrusage(RUSAGE_SELF, &r_usage);
   KMP_CHECK_SYSFAIL_ERRNO("getrusage", status);
 
-#if !KMP_OS_WASI
+// z/OS fills in only ru_utime and ru_stime; its struct rusage has no other
+// member.
+#if !KMP_OS_WASI && !KMP_OS_ZOS
   // The maximum resident set size utilized (in kilobytes)
   info->maxrss = r_usage.ru_maxrss;
   // The number of page faults serviced without any I/O
@@ -1958,12 +1964,37 @@ static int __kmp_get_xproc(void) {
 
 #elif KMP_OS_DRAGONFLY || KMP_OS_FREEBSD || KMP_OS_NETBSD || KMP_OS_OPENBSD || \
     KMP_OS_HAIKU || KMP_OS_HURD || KMP_OS_SOLARIS || KMP_OS_WASI ||            \
-    KMP_OS_AIX || KMP_OS_ZOS
+    KMP_OS_AIX
 
-  // On z/OS this is what std::thread::hardware_concurrency reports, not the
-  // LPAR's live CPs; LLVM reads those from the CVT and CSD control blocks in
-  // computeHostNumPhysicalCores(), llvm/lib/Support/Unix/Threading.inc.
   __kmp_type_convert(sysconf(_SC_NPROCESSORS_ONLN), &(r));
+
+#elif KMP_OS_ZOS
+
+  // z/OS has no sysconf() query for the processor count, so read the number of
+  // live CPs in the LPAR out of the CSD, reached through the CVT in low core.
+  // This is what LLVM does in computeHostNumPhysicalCores(),
+  // llvm/lib/Support/Unix/Threading.inc.
+  {
+    enum {
+      // Byte offset of the pointer to the Communications Vector Table (CVT) in
+      // the Prefixed Save Area (PSA). The table entry is a 31-bit pointer and
+      // will be zero-extended to uintptr_t.
+      FLCCVT = 16,
+      // Byte offset of the pointer to the Common System Data Area (CSD) in the
+      // CVT. The table entry is a 31-bit pointer and will be zero-extended to
+      // uintptr_t.
+      CVTCSD = 660,
+      // Byte offset to the number of live CPs in the LPAR, stored as a signed
+      // 32-bit value in the table.
+      CSD_NUMBER_ONLINE_STANDARD_CPS = 264,
+    };
+    char *PSA = 0;
+    char *CVT = reinterpret_cast<char *>(
+        static_cast<uintptr_t>(reinterpret_cast<unsigned int &>(PSA[FLCCVT])));
+    char *CSD = reinterpret_cast<char *>(
+        static_cast<uintptr_t>(reinterpret_cast<unsigned int &>(CVT[CVTCSD])));
+    r = reinterpret_cast<int &>(CSD[CSD_NUMBER_ONLINE_STANDARD_CPS]);
+  }
 
 #elif KMP_OS_DARWIN
 

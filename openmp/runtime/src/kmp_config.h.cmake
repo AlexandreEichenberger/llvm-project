@@ -129,7 +129,9 @@
 #define KMP_ASM_INTRINS 1
 #define USE_ITT_BUILD LIBOMP_USE_ITT_NOTIFY
 #define INTEL_ITTNOTIFY_PREFIX __kmp_itt_
-#if ! (KMP_MIC || KMP_OS_HAIKU)
+// Load-balance dynamic mode reads per-process state out of /proc, which z/OS
+// does not provide in that form.
+#if ! (KMP_MIC || KMP_OS_HAIKU || KMP_OS_ZOS)
 # define USE_LOAD_BALANCE 1
 #endif
 #if ! (KMP_OS_WINDOWS || KMP_OS_DARWIN || KMP_OS_ZOS)
