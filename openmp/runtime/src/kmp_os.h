@@ -1302,6 +1302,13 @@ extern void *__kmp_lookup_symbol(const char *name, bool next = false);
 #elif KMP_OS_WASI || KMP_OS_EMSCRIPTEN
 #define KMP_DLSYM(name) nullptr
 #define KMP_DLSYM_NEXT(name) nullptr
+#elif KMP_OS_ZOS
+// z/OS has dlsym() and RTLD_DEFAULT, but its DLL model has no load order to
+// search past the current object, so it has no RTLD_NEXT. Nothing is lost: the
+// _NEXT lookups all reach for a device runtime, and libomptarget is not built
+// on z/OS.
+#define KMP_DLSYM(name) dlsym(RTLD_DEFAULT, name)
+#define KMP_DLSYM_NEXT(name) nullptr
 #else
 #define KMP_DLSYM(name) dlsym(RTLD_DEFAULT, name)
 #define KMP_DLSYM_NEXT(name) dlsym(RTLD_NEXT, name)
