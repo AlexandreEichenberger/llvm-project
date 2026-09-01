@@ -372,6 +372,13 @@ if(LIBOMP_USE_ITT_NOTIFY AND NOT LIBOMP_ENABLE_SHARED)
   set(LIBOMP_USE_ITT_NOTIFY FALSE)
 endif()
 
+# ITT Notify instruments for Intel VTune, which does not exist on z/OS, and its
+# vendored sources assume a scalar pthread_t that z/OS does not have.
+if(LIBOMP_USE_ITT_NOTIFY AND "${CMAKE_SYSTEM_NAME}" MATCHES "OS390")
+  message(STATUS "ITT Notify not supported on z/OS - forcing ITT Notify off")
+  set(LIBOMP_USE_ITT_NOTIFY FALSE)
+endif()
+
 if(LIBOMP_USE_VERSION_SYMBOLS AND (NOT LIBOMP_ENABLE_SHARED) )
   message(STATUS "Version symbols not supported for static libraries - forcing Version symbols functionality off")
   set (LIBOMP_USE_VERSION_SYMBOLS FALSE)
