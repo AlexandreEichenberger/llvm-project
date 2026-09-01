@@ -313,7 +313,8 @@ else()
       (LIBOMP_ARCH STREQUAL sparcv9))
      AND # OS supported?
      ((WIN32 AND LIBOMP_HAVE_PSAPI) OR APPLE OR
-      (NOT (WIN32 OR "${CMAKE_SYSTEM_NAME}" MATCHES "AIX") AND LIBOMP_HAVE_WEAK_ATTRIBUTE)))
+      # z/OS is excluded for now: OMPT needs weak symbols and a dlopen'd tool.
+      (NOT (WIN32 OR "${CMAKE_SYSTEM_NAME}" MATCHES "AIX|OS390") AND LIBOMP_HAVE_WEAK_ATTRIBUTE)))
     set(LIBOMP_HAVE_OMPT_SUPPORT TRUE)
   else()
     set(LIBOMP_HAVE_OMPT_SUPPORT FALSE)

@@ -585,6 +585,9 @@ typedef int PACKED_REDUCTION_METHOD_T;
 #if !KMP_OS_WASI
 #include <dlfcn.h>
 #endif
+// Needed for kmp_thread_t and kmp_key_t below; only glibc and Darwin also
+// declare those from <sys/types.h> above.
+#include <pthread.h>
 #endif
 
 enum kmp_hw_t : int {

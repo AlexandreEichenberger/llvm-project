@@ -95,8 +95,9 @@
 #if KMP_MSVC_COMPAT
 #define alloca _alloca // Allow to use alloca() with no underscore.
 #endif
-#elif KMP_OS_DRAGONFLY || KMP_OS_FREEBSD || KMP_OS_NETBSD || KMP_OS_OPENBSD
-// Declared in "stdlib.h".
+#elif KMP_OS_DRAGONFLY || KMP_OS_FREEBSD || KMP_OS_NETBSD || KMP_OS_OPENBSD || \
+    KMP_OS_ZOS
+// Declared in "stdlib.h". z/OS has no <alloca.h> either.
 #elif KMP_OS_UNIX
 #include <alloca.h> // Linux* OS and OS X*: alloc() declared in "alloca".
 #else

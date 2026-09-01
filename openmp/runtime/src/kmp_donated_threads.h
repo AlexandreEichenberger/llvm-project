@@ -40,6 +40,11 @@
 
 #if KMP_USE_DONATED_THREADS
 
+// For pthread_t, the one platform type in this header. Include this header
+// after "kmp.h", as both users do: platforms whose <pthread.h> is gated behind
+// feature-test macros -- z/OS behind _XOPEN_SOURCE, and so behind whatever the
+// build sets -- want the runtime's own include order, not a second one reached
+// from somewhere else.
 #include <pthread.h>
 
 // ---------------------------------------------------------------------------

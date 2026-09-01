@@ -17,7 +17,7 @@
 
 // On Unix-like systems (Linux* OS and OS X*) getpid() is declared in standard
 // headers.
-#if !KMP_OS_AIX && !KMP_OS_HAIKU
+#if !KMP_OS_AIX && !KMP_OS_HAIKU && !KMP_OS_ZOS
 #include <sys/syscall.h>
 #endif
 #include <sys/types.h>
@@ -36,6 +36,12 @@
 #elif KMP_OS_AIX || KMP_OS_SOLARIS
 #include <pthread.h>
 #define __kmp_gettid() pthread_self()
+#elif KMP_OS_ZOS
+#include <pthread.h>
+// pthread_t is a structure here, so it cannot stand in for a thread id as
+// above; its `__` member is the integer id, as llvm_thread_get_id_impl() uses
+// in llvm/lib/Support/Unix/Threading.inc.
+#define __kmp_gettid() ((int)(pthread_self().__))
 #elif KMP_OS_HAIKU
 #include <OS.h>
 #define __kmp_gettid() find_thread(NULL)

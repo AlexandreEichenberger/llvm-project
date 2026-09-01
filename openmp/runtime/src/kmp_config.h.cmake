@@ -62,11 +62,13 @@
 #cmakedefine01 LIBOMP_USE_HIER_SCHED
 #define KMP_USE_HIER_SCHED LIBOMP_USE_HIER_SCHED
 #cmakedefine01 LIBOMP_USE_DONATED_THREADS
-// The platform test is belt and braces: CMake offers the option on Linux and
-// macOS only, but defining it by hand elsewhere must still reduce to the stub.
-// A future KMP_OS_ZOS belongs in this list, and in the matching one in CMake.
+// The platform test is belt and braces: CMake offers the option on these three
+// only, but defining it by hand elsewhere must still reduce to the stub. z/OS is
+// also in the first term, because there the runtime creates no threads at all
+// and this is not an option but the only way it obtains a worker.
 #define KMP_USE_DONATED_THREADS                                                \
-  (LIBOMP_USE_DONATED_THREADS && (KMP_OS_LINUX || KMP_OS_DARWIN))
+  ((LIBOMP_USE_DONATED_THREADS || KMP_OS_ZOS) &&                               \
+   (KMP_OS_LINUX || KMP_OS_DARWIN || KMP_OS_ZOS))
 #cmakedefine01 STUBS_LIBRARY
 #cmakedefine01 LIBOMP_USE_HWLOC
 #define KMP_USE_HWLOC LIBOMP_USE_HWLOC

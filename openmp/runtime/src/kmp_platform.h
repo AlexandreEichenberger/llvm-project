@@ -28,6 +28,7 @@
 #define KMP_OS_WASI 0
 #define KMP_OS_EMSCRIPTEN 0
 #define KMP_OS_AIX 0
+#define KMP_OS_ZOS 0
 #define KMP_OS_UNIX 0 /* disjunction of KMP_OS_LINUX, KMP_OS_DARWIN etc. */
 
 #ifdef _WIN32
@@ -100,15 +101,23 @@
 #define KMP_OS_AIX 1
 #endif
 
+// __MVS__ is the spelling the rest of the LLVM tree tests for z/OS; clang
+// predefines several others (__TOS_390__, __THW_370__) alongside it.
+#if (defined __MVS__)
+#undef KMP_OS_ZOS
+#define KMP_OS_ZOS 1
+#endif
+
 #if (1 != KMP_OS_LINUX + KMP_OS_DRAGONFLY + KMP_OS_FREEBSD + KMP_OS_NETBSD +   \
               KMP_OS_OPENBSD + KMP_OS_DARWIN + KMP_OS_WINDOWS + KMP_OS_HAIKU + \
-              KMP_OS_HURD + KMP_OS_SOLARIS + KMP_OS_WASI + KMP_OS_AIX)
+              KMP_OS_HURD + KMP_OS_SOLARIS + KMP_OS_WASI + KMP_OS_AIX +        \
+              KMP_OS_ZOS)
 #error Unknown OS
 #endif
 
 #if KMP_OS_LINUX || KMP_OS_DRAGONFLY || KMP_OS_FREEBSD || KMP_OS_NETBSD ||     \
     KMP_OS_OPENBSD || KMP_OS_DARWIN || KMP_OS_HAIKU || KMP_OS_HURD ||          \
-    KMP_OS_SOLARIS || KMP_OS_WASI || KMP_OS_AIX
+    KMP_OS_SOLARIS || KMP_OS_WASI || KMP_OS_AIX || KMP_OS_ZOS
 #undef KMP_OS_UNIX
 #define KMP_OS_UNIX 1
 #endif

@@ -25,6 +25,14 @@
 
 #if KMP_USE_DONATED_THREADS
 
+// Refused in CMake as well; repeated here for a build that defines the macros
+// by hand. __kmp_stats_thread_ptr is per-thread state, so a donated thread
+// would carry the runtime's copy of it back into the application, pointing into
+// a kmp_stats_list that teardown frees.
+#if KMP_STATS_ENABLED
+#error Donated threads and stats gathering cannot be enabled together
+#endif
+
 #include <pthread.h>
 #include <sys/time.h>
 #include <time.h>
@@ -505,8 +513,12 @@ void __kmp_donated_initialize(int nthreads_requested) {
                                     KMP_DONATED_NSEC_PER_MSEC;
     if (deadline > budget)
       deadline = budget;
-    struct timespec ts = {(time_t)(deadline / KMP_NSEC_PER_SEC),
-                          (long)(deadline % KMP_NSEC_PER_SEC)};
+    // Field by field, not as an aggregate initializer: POSIX fixes the names of
+    // these two members but neither their order nor that they are the only
+    // ones.
+    struct timespec ts;
+    ts.tv_sec = (time_t)(deadline / KMP_NSEC_PER_SEC);
+    ts.tv_nsec = (long)(deadline % KMP_NSEC_PER_SEC);
     // Until the slice expires or a broadcast (a donation arriving or a spend).
     (void)pthread_cond_timedwait(&__kmp_donated_cond, &__kmp_donated_lock, &ts);
     now = __kmp_donated_now_nsec();

@@ -22,7 +22,9 @@
 #include "kmp_wait_release.h"
 #include "kmp_wrapper_getpid.h"
 
-#if !KMP_OS_DRAGONFLY && !KMP_OS_FREEBSD && !KMP_OS_NETBSD && !KMP_OS_OPENBSD
+// z/OS has no <alloca.h> either; see kmp_wrapper_malloc.h.
+#if !KMP_OS_DRAGONFLY && !KMP_OS_FREEBSD && !KMP_OS_NETBSD &&                  \
+    !KMP_OS_OPENBSD && !KMP_OS_ZOS
 #include <alloca.h>
 #endif
 #include <math.h> // HUGE_VAL.
@@ -33,7 +35,7 @@
 #if KMP_OS_AIX
 #include <sys/ldr.h>
 #include <libperfstat.h>
-#elif !KMP_OS_HAIKU
+#elif !KMP_OS_HAIKU && !KMP_OS_ZOS
 #include <sys/syscall.h>
 #endif
 #include <sys/time.h>
@@ -527,7 +529,16 @@ static kmp_int32 __kmp_set_stack_info(int gtid, kmp_info_t *th) {
 }
 
 static void *__kmp_launch_worker(void *thr) {
-  int status, old_type, old_state;
+  // Declared under the conditions that use them, as padding below is: donated
+  // threads compile out the cancellation block, which is the only user of all
+  // three unless KMP_BLOCK_SIGNALS also wants status.
+#if (KMP_CANCEL_THREADS && !KMP_USE_DONATED_THREADS) ||                        \
+    defined(KMP_BLOCK_SIGNALS)
+  int status;
+#endif
+#if KMP_CANCEL_THREADS && !KMP_USE_DONATED_THREADS
+  int old_type, old_state;
+#endif
 #ifdef KMP_BLOCK_SIGNALS
   sigset_t new_set, old_set;
 #endif /* KMP_BLOCK_SIGNALS */
@@ -1946,8 +1957,12 @@ static int __kmp_get_xproc(void) {
   __kmp_type_convert(sysconf(_SC_NPROCESSORS_CONF), &(r));
 
 #elif KMP_OS_DRAGONFLY || KMP_OS_FREEBSD || KMP_OS_NETBSD || KMP_OS_OPENBSD || \
-    KMP_OS_HAIKU || KMP_OS_HURD || KMP_OS_SOLARIS || KMP_OS_WASI || KMP_OS_AIX
+    KMP_OS_HAIKU || KMP_OS_HURD || KMP_OS_SOLARIS || KMP_OS_WASI ||            \
+    KMP_OS_AIX || KMP_OS_ZOS
 
+  // On z/OS this is what std::thread::hardware_concurrency reports, not the
+  // LPAR's live CPs; LLVM reads those from the CVT and CSD control blocks in
+  // computeHostNumPhysicalCores(), llvm/lib/Support/Unix/Threading.inc.
   __kmp_type_convert(sysconf(_SC_NPROCESSORS_ONLN), &(r));
 
 #elif KMP_OS_DARWIN
@@ -2435,7 +2450,7 @@ int __kmp_is_address_mapped(void *addr) {
   }
   KMP_INTERNAL_FREE(loadQueryBuf);
 
-#elif KMP_OS_HAIKU
+#elif KMP_OS_HAIKU || KMP_OS_ZOS
 
   found = 1;
 #else

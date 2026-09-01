@@ -2,10 +2,12 @@
 
 #include <utility>
 
+// The arches listed here have __kmp_invoke_microtask in assembly instead. s390x
+// is qualified by !KMP_OS_ZOS because z_Linux_asm.S writes it to the ELF ABI.
 #if !(KMP_ARCH_X86 || KMP_ARCH_X86_64 || KMP_MIC || KMP_ARCH_AARCH64 ||        \
       KMP_ARCH_PPC64 || KMP_ARCH_RISCV64 || KMP_ARCH_LOONGARCH64 ||            \
-      KMP_ARCH_ARM || KMP_ARCH_VE || KMP_ARCH_S390X || KMP_ARCH_PPC_XCOFF ||   \
-      KMP_ARCH_AARCH64_32)
+      KMP_ARCH_ARM || KMP_ARCH_VE || (KMP_ARCH_S390X && !KMP_OS_ZOS) ||        \
+      KMP_ARCH_PPC_XCOFF || KMP_ARCH_AARCH64_32)
 
 template <size_t> using microtask_argument_t = void *;
 

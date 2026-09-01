@@ -151,7 +151,15 @@ void KMP_EXPAND_NAME(KMP_API_NAME_GOMP_BARRIER)(void) {
 // The RTL contains an assembly language definition of .gomp_critical_user_
 // with another symbol __kmp_unnamed_critical_addr initialized with it's
 // address.
+// Except on z/OS, which builds no assembly file, so the storage is defined
+// here. The .comm in the assembly is there to merge with the block in a
+// libgomp-compiled object; there is no libgomp here to merge with.
+#if KMP_OS_ZOS
+static kmp_critical_name __kmp_unnamed_critical_name;
+kmp_critical_name *__kmp_unnamed_critical_addr = &__kmp_unnamed_critical_name;
+#else
 extern kmp_critical_name *__kmp_unnamed_critical_addr;
+#endif
 
 void KMP_EXPAND_NAME(KMP_API_NAME_GOMP_CRITICAL_START)(void) {
   int gtid = __kmp_entry_gtid();

@@ -129,6 +129,9 @@ else()
     libomp_append(LIBOMP_CXXFILES kmp_gsupport.cpp)
     if("${CMAKE_SYSTEM_NAME}" MATCHES "AIX")
       libomp_append(LIBOMP_GNUASMFILES z_AIX_asm.S) # AIX assembly file
+    elseif("${CMAKE_SYSTEM_NAME}" MATCHES "OS390")
+      # No assembly file: z_Linux_asm.S's s390x code is written to the ELF ABI.
+      # Its two symbols come from kmp_invoke_microtask.cpp and kmp_gsupport.cpp.
     else()
       libomp_append(LIBOMP_GNUASMFILES z_Linux_asm.S) # Unix assembly file
     endif()
@@ -172,7 +175,11 @@ endif()
 # in libomp.
 add_library(obj.omp OBJECT ${LIBOMP_SOURCE_FILES})
 set_property(TARGET obj.omp PROPERTY FOLDER "OpenMP/Libraries")
-set_property(TARGET obj.omp PROPERTY POSITION_INDEPENDENT_CODE ON)
+# Not on z/OS, which has no PIC: llvm/CMakeLists.txt does not even offer
+# LLVM_ENABLE_PIC there.
+if(NOT "${CMAKE_SYSTEM_NAME}" MATCHES "OS390")
+  set_property(TARGET obj.omp PROPERTY POSITION_INDEPENDENT_CODE ON)
+endif()
 
 libomp_get_ldflags(LIBOMP_CONFIGURED_LDFLAGS)
 libomp_get_libflags(LIBOMP_CONFIGURED_LIBFLAGS)

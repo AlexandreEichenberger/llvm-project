@@ -153,6 +153,23 @@ if("${LIBOMP_ARCH}" STREQUAL "mips" OR "${LIBOMP_ARCH}" STREQUAL "mips64")
   set(LIBOMP_LIBFLAGS "${LIBOMP_LIBFLAGS} -latomic")
 endif()
 
+# Build with _XOPEN_SOURCE on z/OS, as llvm/CMakeLists.txt does -- same set, same
+# flags. The runtimes sub-build is a separate CMake invocation and inherits none
+# of it, and _XOPEN_SOURCE=600 is what exposes the pthreads the runtime is built
+# on. The ASCII char mode has to match the applications that link libomp; see the
+# note there about why it cannot be a global setting.
+if("${CMAKE_SYSTEM_NAME}" MATCHES "OS390")
+  add_compile_definitions(_XOPEN_SOURCE=600)
+  add_compile_definitions(_XPLATFORM_SOURCE) # Needed e.g. for O_CLOEXEC.
+  add_compile_definitions(_OPEN_SYS) # Needed for process information.
+  add_compile_definitions(_OPEN_SYS_FILE_EXT) # Needed for EBCDIC I/O.
+  add_compile_definitions(_EXT) # Needed for file data.
+  foreach(zos_flag "-fzos-le-char-mode=ascii" "-m64")
+    string(APPEND CMAKE_CXX_FLAGS " ${zos_flag}")
+    string(APPEND CMAKE_C_FLAGS " ${zos_flag}")
+  endforeach()
+endif()
+
 # Should the libomp library and generated headers be copied into the original source exports/ directory
 # Turning this to FALSE aids parallel builds to not interfere with each other.
 # Currently, the testsuite module expects the just built OpenMP library to be located inside the exports/
@@ -408,15 +425,26 @@ set(LIBOMP_USE_HIER_SCHED FALSE CACHE BOOL
 # Donated threads support
 # Provision workers from threads the application donates by calling
 # kmp_donate_thread(), instead of from pthread_create()
-if("${CMAKE_SYSTEM_NAME}" MATCHES "Linux|Darwin")
+if("${CMAKE_SYSTEM_NAME}" MATCHES "Linux|Darwin|OS390")
   set(LIBOMP_HAVE_DONATED_THREADS TRUE)
 else()
   set(LIBOMP_HAVE_DONATED_THREADS FALSE)
 endif()
-set(LIBOMP_USE_DONATED_THREADS FALSE CACHE BOOL
+# On z/OS the runtime creates no threads at all, so this is not an option there
+# but the only way it obtains a worker: it defaults on, and kmp_config.h holds it
+# on whatever the cache says.
+if("${CMAKE_SYSTEM_NAME}" MATCHES "OS390")
+  set(LIBOMP_USE_DONATED_THREADS_DEFAULT TRUE)
+else()
+  set(LIBOMP_USE_DONATED_THREADS_DEFAULT FALSE)
+endif()
+set(LIBOMP_USE_DONATED_THREADS ${LIBOMP_USE_DONATED_THREADS_DEFAULT} CACHE BOOL
   "Provision workers from application-donated threads instead of pthread_create()?")
+if("${CMAKE_SYSTEM_NAME}" MATCHES "OS390" AND (NOT LIBOMP_USE_DONATED_THREADS))
+  libomp_warning_say("Donated threads are the only source of workers on z/OS; LIBOMP_USE_DONATED_THREADS=OFF is ignored")
+endif()
 if(LIBOMP_USE_DONATED_THREADS AND (NOT LIBOMP_HAVE_DONATED_THREADS))
-  libomp_error_say("Donated threads functionality is only supported on Linux and macOS")
+  libomp_error_say("Donated threads functionality is only supported on Linux, macOS and z/OS")
 endif()
 # __kmp_stats_thread_ptr is per-thread state, so a donated thread would carry the
 # runtime's copy of it back into the application and hold a pointer into a

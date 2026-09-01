@@ -24,9 +24,9 @@ The feature is a third implementation of an interface ``libomp`` already has:
 ``__kmp_create_worker`` and ``__kmp_reap_worker``, which already exist separately
 for Unix and for Windows. Nothing above that boundary is aware of it.
 
-The option is offered on Linux and macOS and defaults to ``OFF``. Requesting it
-on any other platform is a configure-time error. The implementation file is
-compiled everywhere regardless, with its body under ``#if
+The option is offered on Linux, macOS and z/OS and defaults to ``OFF``.
+Requesting it on any other platform is a configure-time error. The
+implementation file is compiled everywhere regardless, with its body under ``#if
 KMP_USE_DONATED_THREADS`` and an ``#else`` stub, so ``kmp_donate_thread`` is
 declared in ``omp.h`` and exported unconditionally on every platform: the ABI
 does not vary by configuration.
@@ -158,8 +158,8 @@ Each of these is a deliberate simplification, not an omission.
      - The table is a fixed, statically allocated array.
      - ``kmp_donate_thread`` returns ``ENOMEM``; the caller decides.
    * - Donating threads on Windows
-     - The feature is for Linux and macOS. Windows itself keeps working
-       unchanged, with the feature compiled out.
+     - The feature needs POSIX threads. Windows itself keeps working unchanged,
+       with the feature compiled out.
      - ``LIBOMP_USE_DONATED_THREADS`` is refused at configure time;
        ``kmp_donate_thread`` returns ``ENOSYS``.
    * - A Fortran spelling of ``kmp_donate_thread``
@@ -246,6 +246,42 @@ about 130 to 150 bytes per entry, depending on how large the platform's
 ``pthread_mutex_t`` and ``pthread_cond_t`` are: an entry carries one of each, so
 that the runtime can wake one donated thread without disturbing the others.
 
+What the feature asks of a platform
+-----------------------------------
+
+Only POSIX threads, and only the part of them that every conforming
+implementation has. ``KMP_USE_DONATED_THREADS`` is therefore spelled as
+``KMP_OS_UNIX`` rather than as a list of operating systems, so a new port brings
+the feature with it. The constraints that keep that true are worth naming,
+because each of them is a place where the obvious code would not have been
+portable:
+
+* ``pthread_t`` is never compared, printed, or used as a key. A donated thread's
+  slot is found by the identity of the ``kmp_info_t *`` it was handed to. On
+  z/OS ``pthread_t`` is a structure, so ``==`` would not compile and
+  ``pthread_equal`` would not be usable in the scan.
+* The wait for donations is taken against ``gettimeofday``, the clock
+  ``pthread_cond_timedwait`` uses when it cannot be told otherwise.
+  ``pthread_condattr_setclock`` is absent on both Darwin and z/OS, and
+  ``KMP_NOW`` is the timestamp counter rather than a wall clock on x86. The wait
+  is sliced so that a step of the realtime clock costs one slice rather than the
+  whole budget.
+* ``struct timespec`` is filled in field by field. POSIX fixes the names of
+  ``tv_sec`` and ``tv_nsec`` but neither their order nor that they are the only
+  members, so an aggregate initializer would rely on a layout no standard
+  promises.
+* Asynchronous cancellation is not enabled on a donated thread. This is required
+  anyway -- the thread goes back to the application and must not carry the
+  runtime's cancel state with it -- but it also means the feature does not need
+  ``PTHREAD_CANCEL_ASYNCHRONOUS`` to work as it does on Linux.
+* The saved-and-restored per-thread state is the ``gtid`` and, on x86 only, the
+  x87 control word and ``MXCSR``. Nothing else is architecture-specific, and the
+  x86 half is under ``KMP_ARCH_X86 || KMP_ARCH_X86_64``.
+* ``<pthread.h>`` is reached through ``kmp.h``, which is included first
+  everywhere. Platforms that gate their thread declarations behind feature-test
+  macros -- z/OS behind ``_XOPEN_SOURCE`` -- then need those macros set once, by
+  the build, and not once per include site.
+
 Notes for the curious
 ---------------------
 
@@ -258,19 +294,24 @@ is created by its donor rather than written out as a static initializer per
 entry, which on macOS -- where an all-zero ``pthread_mutex_t`` is not a valid one
 -- would move the whole table out of ``.bss`` and into the binary.
 
-Matching a donation to a request is done by two counters that only ever
-increase: donation *i* serves request *i*. Nothing is searched for and no entry
-is ever reused.
+A request is matched to a donation by scanning the table for the first parked
+entry, and a worker being reaped is matched back to its own entry by the identity
+of the ``kmp_info_t *`` it was handed -- never by comparing ``pthread_t``, which
+is a structure on z/OS. One counter serves both scans and allocates the next
+entry: it records how many entries have ever been claimed and only ever
+increases, so the claimed entries are exactly the first *n*. No entry is ever
+reused and only a parked one is handed out, so a donation serves at most one
+request.
 
-Locking is in two levels, and nothing holds one while taking the other. One
-mutex covers the table -- the two counters, and the announcement that a donation
-has arrived. Beyond that, each donated thread has its own mutex and condition
-variable, and they carry the two handoffs that concern only it: the work handed
-to it, and the return value it hands back at shutdown. So donating, requesting a
-worker, waking a specific donated thread, and waiting for one to come back
-contend with each other only where they genuinely touch the same words, and a
-donated thread is woken by name rather than by a broadcast that every other
-parked donor has to wake up and dismiss.
+Locking is in two levels, and nothing holds one while taking the other. One mutex
+covers the table -- that counter, each entry's state, and the announcement that a
+donation has arrived. Beyond that, each donated thread has its own mutex and
+condition variable, and they carry the two handoffs that concern only it: the
+work handed to it, and the return value it hands back at shutdown. So donating,
+requesting a worker, waking a specific donated thread, and waiting for one to
+come back contend with each other only where they genuinely touch the same
+words, and a donated thread is woken by name rather than by a broadcast that
+every other parked donor has to wake up and dismiss.
 
 The table's mutex is the innermost lock in the runtime: anything may be held
 while taking it, and nothing is ever taken while holding it. That is what lets
